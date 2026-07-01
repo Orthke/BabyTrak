@@ -1,0 +1,905 @@
+import { Router } from 'express';
+import db from './db.js';
+
+const router = Router();
+
+/* ----------------------------- helpers ----------------------------- */
+
+const asInt = (v) => (v ? 1 : 0);
+const ok = (res, data) => res.json(data);
+const notFound = (res) => res.status(404).json({ error: 'Not found' });
+const badRequest = (res, msg) => res.status(400).json({ error: msg });
+
+// Resolve the baby scope from query (?babyId=) or body.baby_id.
+const babyScope = (req) => {
+  const raw = req.query.babyId ?? req.body?.baby_id;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+// Resolve the caregiver scope from query (?caregiverId=) or body.caregiver_id.
+const caregiverScope = (req) => {
+  const raw = req.query.caregiverId ?? req.body?.caregiver_id;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+/* ------------------------------ babies ----------------------------- */
+
+router.get('/babies', (req, res) => {
+  ok(res, db.prepare('SELECT * FROM babies ORDER BY created_at ASC, id ASC').all());
+});
+
+const babyFields = (b) => ({
+  name: b.name.trim(),
+  birthdate: b.birthdate || null,
+  gender: b.gender === 'boy' ? 'boy' : 'girl',
+  weight_grams: b.weight_grams ?? null,
+  weight_unit: b.weight_unit || 'lb_oz',
+  height_cm: b.height_cm ?? null,
+  height_unit: b.height_unit || 'in',
+});
+
+router.post('/babies', (req, res) => {
+  const b = req.body;
+  if (!b.name || !b.name.trim()) return badRequest(res, 'Name is required');
+  const info = db
+    .prepare(
+      `INSERT INTO babies (name, birthdate, gender, weight_grams, weight_unit, height_cm, height_unit)
+       VALUES (@name, @birthdate, @gender, @weight_grams, @weight_unit, @height_cm, @height_unit)`
+    )
+    .run(babyFields(b));
+  ok(res, db.prepare('SELECT * FROM babies WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/babies/:id', (req, res) => {
+  const b = req.body;
+  if (!b.name || !b.name.trim()) return badRequest(res, 'Name is required');
+  const info = db
+    .prepare(
+      `UPDATE babies SET name=@name, birthdate=@birthdate, gender=@gender, weight_grams=@weight_grams,
+       weight_unit=@weight_unit, height_cm=@height_cm, height_unit=@height_unit WHERE id=@id`
+    )
+    .run({ id: req.params.id, ...babyFields(b) });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM babies WHERE id = ?').get(req.params.id));
+});
+
+// Deleting a baby removes all of its entries too (cascade in app code).
+const deleteBaby = db.transaction((id) => {
+  db.prepare('DELETE FROM feedings WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM pumps WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM diapers WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM med_doses WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM milestones WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM sleeps WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM measurements WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM temperatures WHERE baby_id = ?').run(id);
+  return db.prepare('DELETE FROM babies WHERE id = ?').run(id);
+});
+
+router.delete('/babies/:id', (req, res) => {
+  const info = deleteBaby(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ---------------------------- caregivers --------------------------- */
+// Parents/others who track only their own medications.
+
+router.get('/caregivers', (req, res) => {
+  ok(res, db.prepare('SELECT * FROM caregivers ORDER BY created_at ASC, id ASC').all());
+});
+
+router.post('/caregivers', (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Name is required');
+  const info = db.prepare('INSERT INTO caregivers (name) VALUES (?)').run(name);
+  ok(res, db.prepare('SELECT * FROM caregivers WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/caregivers/:id', (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Name is required');
+  const info = db.prepare('UPDATE caregivers SET name = ? WHERE id = ?').run(name, req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM caregivers WHERE id = ?').get(req.params.id));
+});
+
+// Deleting a caregiver removes their logged doses too.
+const deleteCaregiver = db.transaction((id) => {
+  db.prepare('DELETE FROM med_doses WHERE caregiver_id = ?').run(id);
+  db.prepare('DELETE FROM temperatures WHERE caregiver_id = ?').run(id);
+  return db.prepare('DELETE FROM caregivers WHERE id = ?').run(id);
+});
+
+router.delete('/caregivers/:id', (req, res) => {
+  const info = deleteCaregiver(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ------------------------------ feedings --------------------------- */
+// Unified: type 'breast' | 'bottle' | 'both'.
+
+router.get('/feedings', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM feedings WHERE baby_id = ? ORDER BY start_time DESC').all(baby));
+});
+
+router.post('/feedings', (req, res) => {
+  const b = req.body;
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const type = ['breast', 'bottle', 'both'].includes(b.type) ? b.type : 'breast';
+  const info = db
+    .prepare(
+      `INSERT INTO feedings (baby_id, type, start_time, end_time, left_seconds, right_seconds, bottle_seconds, amount, unit, milk_type, comment)
+       VALUES (@baby_id, @type, @start_time, @end_time, @left_seconds, @right_seconds, @bottle_seconds, @amount, @unit, @milk_type, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      type,
+      start_time: b.start_time,
+      end_time: b.end_time ?? null,
+      left_seconds: b.left_seconds ?? 0,
+      right_seconds: b.right_seconds ?? 0,
+      bottle_seconds: b.bottle_seconds ?? 0,
+      amount: b.amount ?? null,
+      unit: b.unit ?? 'ml',
+      milk_type: b.milk_type ?? 'breast',
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM feedings WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/feedings/:id', (req, res) => {
+  const b = req.body;
+  const type = ['breast', 'bottle', 'both'].includes(b.type) ? b.type : 'breast';
+  const info = db
+    .prepare(
+      `UPDATE feedings SET type=@type, start_time=@start_time, end_time=@end_time, left_seconds=@left_seconds,
+       right_seconds=@right_seconds, bottle_seconds=@bottle_seconds, amount=@amount, unit=@unit,
+       milk_type=@milk_type, comment=@comment WHERE id=@id`
+    )
+    .run({
+      id: req.params.id,
+      type,
+      start_time: b.start_time,
+      end_time: b.end_time ?? null,
+      left_seconds: b.left_seconds ?? 0,
+      right_seconds: b.right_seconds ?? 0,
+      bottle_seconds: b.bottle_seconds ?? 0,
+      amount: b.amount ?? null,
+      unit: b.unit ?? 'ml',
+      milk_type: b.milk_type ?? 'breast',
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM feedings WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/feedings/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM feedings WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ------------------------------ diapers ---------------------------- */
+
+router.get('/diapers', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM diapers WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+const STOOL_AMOUNTS = ['light', 'medium', 'heavy', 'blowout'];
+const STOOL_TEXTURES = ['runny', 'seedy', 'pasty', 'mushy', 'pebbles'];
+const oneOf = (val, allowed) => (allowed.includes(val) ? val : null);
+
+router.post('/diapers', (req, res) => {
+  const b = req.body;
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const dirty = asInt(b.dirty);
+  // Stool detail is only kept for dirty diapers.
+  const info = db
+    .prepare(
+      `INSERT INTO diapers (baby_id, time, wet, dirty, stool_amount, stool_color, stool_texture, comment)
+       VALUES (@baby_id, @time, @wet, @dirty, @stool_amount, @stool_color, @stool_texture, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      time: b.time,
+      wet: asInt(b.wet),
+      dirty,
+      stool_amount: dirty ? oneOf(b.stool_amount, STOOL_AMOUNTS) : null,
+      stool_color: dirty && b.stool_color ? String(b.stool_color) : null,
+      stool_texture: dirty ? oneOf(b.stool_texture, STOOL_TEXTURES) : null,
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM diapers WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/diapers/:id', (req, res) => {
+  const b = req.body;
+  const dirty = asInt(b.dirty);
+  const info = db
+    .prepare(
+      `UPDATE diapers SET time=@time, wet=@wet, dirty=@dirty, stool_amount=@stool_amount,
+       stool_color=@stool_color, stool_texture=@stool_texture, comment=@comment WHERE id=@id`
+    )
+    .run({
+      id: req.params.id,
+      time: b.time,
+      wet: asInt(b.wet),
+      dirty,
+      stool_amount: dirty ? oneOf(b.stool_amount, STOOL_AMOUNTS) : null,
+      stool_color: dirty && b.stool_color ? String(b.stool_color) : null,
+      stool_texture: dirty ? oneOf(b.stool_texture, STOOL_TEXTURES) : null,
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM diapers WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/diapers/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM diapers WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ------------------------------- pumps ----------------------------- */
+
+router.get('/pumps', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM pumps WHERE baby_id = ? ORDER BY start_time DESC').all(baby));
+});
+
+router.post('/pumps', (req, res) => {
+  const b = req.body;
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const info = db
+    .prepare(
+      `INSERT INTO pumps (baby_id, start_time, end_time, amount, unit, duration_seconds, comment)
+       VALUES (@baby_id, @start_time, @end_time, @amount, @unit, @duration_seconds, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      start_time: b.start_time,
+      end_time: b.end_time ?? null,
+      amount: b.amount ?? null,
+      unit: b.unit ?? 'ml',
+      duration_seconds: b.duration_seconds ?? 0,
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM pumps WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/pumps/:id', (req, res) => {
+  const b = req.body;
+  const info = db
+    .prepare(
+      `UPDATE pumps SET start_time=@start_time, end_time=@end_time, amount=@amount, unit=@unit,
+       duration_seconds=@duration_seconds, comment=@comment WHERE id=@id`
+    )
+    .run({
+      id: req.params.id,
+      start_time: b.start_time,
+      end_time: b.end_time ?? null,
+      amount: b.amount ?? null,
+      unit: b.unit ?? 'ml',
+      duration_seconds: b.duration_seconds ?? 0,
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM pumps WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/pumps/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM pumps WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* --------------------------- medications --------------------------- */
+// Catalog of medication names for the dropdown (presets + user-added custom).
+
+const MED_UNITS = ['pills', 'mg', 'drops', 'ml'];
+const medUnit = (u) => (MED_UNITS.includes(u) ? u : 'ml');
+const medCategory = (c) => (c === 'caregiver' ? 'caregiver' : 'baby');
+
+// Optional ?category=baby|caregiver filters which dropdown the catalog feeds.
+// Presets are kept in their seeded (curated) order — so the most common meds
+// like Tylenol and Ibuprofen lead — with user-added customs sorted after.
+router.get('/medications', (req, res) => {
+  const { category } = req.query;
+  if (category === 'baby' || category === 'caregiver') {
+    return ok(res, db.prepare('SELECT * FROM medications WHERE category = ? ORDER BY is_custom ASC, id ASC').all(category));
+  }
+  ok(res, db.prepare('SELECT * FROM medications ORDER BY is_custom ASC, id ASC').all());
+});
+
+router.post('/medications', (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Medication name is required');
+  const unit = medUnit(req.body?.default_unit);
+  const category = medCategory(req.body?.category);
+  // Reuse the existing catalog entry if this name already exists in the same
+  // category (case-insensitive) so the dropdown doesn't accumulate duplicates.
+  const existing = db
+    .prepare('SELECT * FROM medications WHERE name = ? COLLATE NOCASE AND category = ?')
+    .get(name, category);
+  if (existing) return ok(res, existing);
+  const info = db
+    .prepare('INSERT INTO medications (name, default_unit, category, is_custom) VALUES (?, ?, ?, 1)')
+    .run(name, unit, category);
+  ok(res, db.prepare('SELECT * FROM medications WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// Remove a custom medication from the catalog (presets are protected).
+router.delete('/medications/:id', (req, res) => {
+  const med = db.prepare('SELECT * FROM medications WHERE id = ?').get(req.params.id);
+  if (!med) return notFound(res);
+  if (!med.is_custom) return badRequest(res, 'Built-in medications cannot be removed');
+  db.prepare('DELETE FROM medications WHERE id = ?').run(req.params.id);
+  ok(res, { deleted: true });
+});
+
+/* ---------------------------- med doses ---------------------------- */
+// Logged doses given to a baby.
+
+router.get('/med-doses', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (caregiver) {
+    return ok(res, db.prepare('SELECT * FROM med_doses WHERE caregiver_id = ? ORDER BY time DESC').all(caregiver));
+  }
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM med_doses WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/med-doses', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  const baby = caregiver ? null : babyScope(req);
+  if (!caregiver && !baby) return badRequest(res, 'baby_id or caregiver_id is required');
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Medication name is required');
+  const info = db
+    .prepare(
+      `INSERT INTO med_doses (baby_id, caregiver_id, name, amount, unit, time, comment)
+       VALUES (@baby_id, @caregiver_id, @name, @amount, @unit, @time, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      caregiver_id: caregiver,
+      name,
+      amount: b.amount == null || b.amount === '' ? null : Number(b.amount),
+      unit: medUnit(b.unit),
+      time: b.time,
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM med_doses WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/med-doses/:id', (req, res) => {
+  const b = req.body;
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Medication name is required');
+  const info = db
+    .prepare(
+      `UPDATE med_doses SET name=@name, amount=@amount, unit=@unit, time=@time, comment=@comment WHERE id=@id`
+    )
+    .run({
+      id: req.params.id,
+      name,
+      amount: b.amount == null || b.amount === '' ? null : Number(b.amount),
+      unit: medUnit(b.unit),
+      time: b.time,
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM med_doses WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/med-doses/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM med_doses WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* -------------------------- milestone types ------------------------ */
+// Catalog of milestone titles for the dropdown (presets + user-added custom).
+
+// Presets are kept in their seeded (developmental) order, with user-added
+// customs sorted after.
+router.get('/milestone-types', (req, res) => {
+  ok(res, db.prepare('SELECT * FROM milestone_types ORDER BY is_custom ASC, id ASC').all());
+});
+
+router.post('/milestone-types', (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Milestone name is required');
+  // Reuse the existing catalog entry if this name already exists
+  // (case-insensitive) so the dropdown doesn't accumulate duplicates.
+  const existing = db.prepare('SELECT * FROM milestone_types WHERE name = ? COLLATE NOCASE').get(name);
+  if (existing) return ok(res, existing);
+  const info = db.prepare('INSERT INTO milestone_types (name, is_custom) VALUES (?, 1)').run(name);
+  ok(res, db.prepare('SELECT * FROM milestone_types WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// Remove a custom milestone from the catalog (presets are protected).
+router.delete('/milestone-types/:id', (req, res) => {
+  const type = db.prepare('SELECT * FROM milestone_types WHERE id = ?').get(req.params.id);
+  if (!type) return notFound(res);
+  if (!type.is_custom) return badRequest(res, 'Built-in milestones cannot be removed');
+  db.prepare('DELETE FROM milestone_types WHERE id = ?').run(req.params.id);
+  ok(res, { deleted: true });
+});
+
+/* ---------------------------- milestones --------------------------- */
+// A milestone reached by a baby: a time, a title (name), and optional comment.
+
+router.get('/milestones', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM milestones WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/milestones', (req, res) => {
+  const b = req.body;
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Milestone name is required');
+  const info = db
+    .prepare('INSERT INTO milestones (baby_id, name, time, comment) VALUES (@baby_id, @name, @time, @comment)')
+    .run({ baby_id: baby, name, time: b.time, comment: b.comment ?? null });
+  ok(res, db.prepare('SELECT * FROM milestones WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/milestones/:id', (req, res) => {
+  const b = req.body;
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Milestone name is required');
+  const info = db
+    .prepare('UPDATE milestones SET name=@name, time=@time, comment=@comment WHERE id=@id')
+    .run({ id: req.params.id, name, time: b.time, comment: b.comment ?? null });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM milestones WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/milestones/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM milestones WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ------------------------------- sleeps ---------------------------- */
+// Nap/sleep sessions. A row with end_time NULL is an in-progress nap (live
+// timer); stopping it sets end_time.
+
+router.get('/sleeps', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM sleeps WHERE baby_id = ? ORDER BY start_time DESC').all(baby));
+});
+
+// The current in-progress nap for a baby, or null. Lets the UI restore a running
+// timer after a reload without scanning the whole list.
+router.get('/sleeps/active', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, null);
+  const active = db
+    .prepare('SELECT * FROM sleeps WHERE baby_id = ? AND end_time IS NULL ORDER BY start_time DESC')
+    .get(baby);
+  ok(res, active ?? null);
+});
+
+router.post('/sleeps', (req, res) => {
+  const b = req.body;
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const start = b.start_time || new Date().toISOString();
+  const end = b.end_time ?? null;
+  // Starting a nap: if one is already running, return it instead of stacking a
+  // second active nap.
+  if (end === null) {
+    const existing = db
+      .prepare('SELECT * FROM sleeps WHERE baby_id = ? AND end_time IS NULL ORDER BY start_time DESC')
+      .get(baby);
+    if (existing) return ok(res, existing);
+  }
+  const info = db
+    .prepare('INSERT INTO sleeps (baby_id, start_time, end_time, comment) VALUES (@baby_id, @start_time, @end_time, @comment)')
+    .run({ baby_id: baby, start_time: start, end_time: end, comment: b.comment ?? null });
+  ok(res, db.prepare('SELECT * FROM sleeps WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/sleeps/:id', (req, res) => {
+  const b = req.body;
+  const info = db
+    .prepare('UPDATE sleeps SET start_time=@start_time, end_time=@end_time, comment=@comment WHERE id=@id')
+    .run({
+      id: req.params.id,
+      start_time: b.start_time,
+      end_time: b.end_time ?? null,
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM sleeps WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/sleeps/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM sleeps WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* --------------------------- measurements -------------------------- */
+// Weight and/or length(height) recorded at a point in time. Values are stored
+// canonically (grams / cm); the unit is kept so the UI can display in the
+// originally-entered units.
+
+const WEIGHT_UNITS = ['lb_oz', 'kg', 'g'];
+const HEIGHT_UNITS = ['in', 'cm'];
+const numOrNull = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
+const measurementFields = (b) => ({
+  time: b.time,
+  weight_grams: numOrNull(b.weight_grams),
+  weight_unit: WEIGHT_UNITS.includes(b.weight_unit) ? b.weight_unit : 'lb_oz',
+  height_cm: numOrNull(b.height_cm),
+  height_unit: HEIGHT_UNITS.includes(b.height_unit) ? b.height_unit : 'in',
+  comment: b.comment ?? null,
+});
+
+router.get('/measurements', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM measurements WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/measurements', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return badRequest(res, 'baby_id is required');
+  const fields = measurementFields(req.body);
+  if (fields.weight_grams == null && fields.height_cm == null) {
+    return badRequest(res, 'A weight or height is required');
+  }
+  const info = db
+    .prepare(
+      `INSERT INTO measurements (baby_id, time, weight_grams, weight_unit, height_cm, height_unit, comment)
+       VALUES (@baby_id, @time, @weight_grams, @weight_unit, @height_cm, @height_unit, @comment)`
+    )
+    .run({ baby_id: baby, ...fields });
+  ok(res, db.prepare('SELECT * FROM measurements WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/measurements/:id', (req, res) => {
+  const fields = measurementFields(req.body);
+  if (fields.weight_grams == null && fields.height_cm == null) {
+    return badRequest(res, 'A weight or height is required');
+  }
+  const info = db
+    .prepare(
+      `UPDATE measurements SET time=@time, weight_grams=@weight_grams, weight_unit=@weight_unit,
+       height_cm=@height_cm, height_unit=@height_unit, comment=@comment WHERE id=@id`
+    )
+    .run({ id: req.params.id, ...fields });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM measurements WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/measurements/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM measurements WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* --------------------------- temperatures -------------------------- */
+// A temperature reading for a baby OR a caregiver (exactly one owner set), like
+// med_doses. Stored in the unit it was entered in.
+
+const TEMP_UNITS = ['F', 'C'];
+const tempUnit = (u) => (TEMP_UNITS.includes(u) ? u : 'F');
+const TEMP_METHODS = ['oral', 'forehead', 'axillary'];
+const tempMethod = (m) => (TEMP_METHODS.includes(m) ? m : 'oral');
+
+router.get('/temperatures', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (caregiver) {
+    return ok(res, db.prepare('SELECT * FROM temperatures WHERE caregiver_id = ? ORDER BY time DESC').all(caregiver));
+  }
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM temperatures WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/temperatures', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  const baby = caregiver ? null : babyScope(req);
+  if (!caregiver && !baby) return badRequest(res, 'baby_id or caregiver_id is required');
+  const temp = numOrNull(b.temp);
+  if (temp == null) return badRequest(res, 'A temperature reading is required');
+  const info = db
+    .prepare(
+      `INSERT INTO temperatures (baby_id, caregiver_id, time, temp, unit, method, comment)
+       VALUES (@baby_id, @caregiver_id, @time, @temp, @unit, @method, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      caregiver_id: caregiver,
+      time: b.time,
+      temp,
+      unit: tempUnit(b.unit),
+      method: tempMethod(b.method),
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM temperatures WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/temperatures/:id', (req, res) => {
+  const b = req.body;
+  const temp = numOrNull(b.temp);
+  if (temp == null) return badRequest(res, 'A temperature reading is required');
+  const info = db
+    .prepare('UPDATE temperatures SET time=@time, temp=@temp, unit=@unit, method=@method, comment=@comment WHERE id=@id')
+    .run({
+      id: req.params.id,
+      time: b.time,
+      temp,
+      unit: tempUnit(b.unit),
+      method: tempMethod(b.method),
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM temperatures WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/temperatures/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM temperatures WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* ------------------------------ timeline --------------------------- */
+
+router.get('/timeline', (req, res) => {
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  const feedings = db
+    .prepare('SELECT * FROM feedings WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'feed', when: r.start_time }));
+  const pumps = db
+    .prepare('SELECT * FROM pumps WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'pump', when: r.start_time }));
+  const diapers = db
+    .prepare('SELECT * FROM diapers WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'diaper', when: r.time }));
+  const meds = db
+    .prepare('SELECT * FROM med_doses WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'med', when: r.time }));
+  const milestones = db
+    .prepare('SELECT * FROM milestones WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'milestone', when: r.time }));
+  const sleeps = db
+    .prepare('SELECT * FROM sleeps WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'sleep', when: r.start_time }));
+  const measurements = db
+    .prepare('SELECT * FROM measurements WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'measurement', when: r.time }));
+  const temperatures = db
+    .prepare('SELECT * FROM temperatures WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'temperature', when: r.time }));
+
+  const all = [...feedings, ...pumps, ...diapers, ...meds, ...milestones, ...sleeps, ...measurements, ...temperatures].sort(
+    (a, b) => (a.when < b.when ? 1 : -1)
+  );
+  ok(res, all);
+});
+
+/* ------------------------------- stats ----------------------------- */
+
+router.get('/stats', (req, res) => {
+  const baby = babyScope(req);
+
+  // Two modes: a rolling range (?days=) or a single calendar day (?date=YYYY-MM-DD).
+  // A specific day takes precedence when given. Both produce day-bucketed output;
+  // the single-day case is just a one-bucket window.
+  const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
+  const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
+
+  let days, since;
+  if (singleDay) {
+    days = 1;
+    since = new Date(`${dateParam}T00:00:00`); // local midnight of the chosen day
+  } else {
+    days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
+    since = new Date();
+    since.setDate(since.getDate() - (days - 1));
+    since.setHours(0, 0, 0, 0);
+  }
+  // Exclusive upper bound: since + days. Bounds both ends so a past day excludes
+  // entries from the days around it.
+  const until = new Date(since);
+  until.setDate(since.getDate() + days);
+  const sinceIso = since.toISOString();
+  const untilIso = until.toISOString();
+
+  const empty = {
+    days,
+    daily: [],
+    totals: { breastCount: 0, bottleCount: 0, diaperCount: 0, bottleMl: 0, breastMinutes: 0, leftMinutes: 0, rightMinutes: 0, pumpCount: 0, pumpMl: 0 },
+    milkSplit: { breast: 0, formula: 0 },
+  };
+  if (!baby) return ok(res, empty);
+
+  const feedings = db.prepare('SELECT * FROM feedings WHERE baby_id = ? AND start_time >= ? AND start_time < ?').all(baby, sinceIso, untilIso);
+  const pumps = db.prepare('SELECT * FROM pumps WHERE baby_id = ? AND start_time >= ? AND start_time < ?').all(baby, sinceIso, untilIso);
+  const diapers = db.prepare('SELECT * FROM diapers WHERE baby_id = ? AND time >= ? AND time < ?').all(baby, sinceIso, untilIso);
+
+  // A feed has a breast portion if it's a breast/both feed, a bottle portion if bottle/both.
+  const hasBreast = (f) => f.type === 'breast' || f.type === 'both';
+  const hasBottle = (f) => f.type === 'bottle' || f.type === 'both';
+
+  const dayKey = (iso) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const buckets = {};
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setDate(since.getDate() + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    buckets[key] = {
+      date: key,
+      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      breastCount: 0,
+      breastMinutes: 0,
+      leftMinutes: 0,
+      rightMinutes: 0,
+      bottleCount: 0,
+      bottleMl: 0,
+      pumpCount: 0,
+      pumpMl: 0,
+      diaperWet: 0,
+      diaperDirty: 0,
+      diaperCount: 0,
+    };
+  }
+
+  const toMl = (amount, unit) => (unit === 'oz' ? amount * 29.5735 : amount);
+
+  for (const r of feedings) {
+    const k = dayKey(r.start_time);
+    if (!buckets[k]) continue;
+    if (hasBreast(r)) {
+      buckets[k].breastCount += 1;
+      buckets[k].breastMinutes += Math.round((r.left_seconds + r.right_seconds) / 60);
+      buckets[k].leftMinutes += Math.round(r.left_seconds / 60);
+      buckets[k].rightMinutes += Math.round(r.right_seconds / 60);
+    }
+    if (hasBottle(r) && r.amount != null) {
+      buckets[k].bottleCount += 1;
+      buckets[k].bottleMl += Math.round(toMl(r.amount, r.unit));
+    }
+  }
+  for (const r of pumps) {
+    const k = dayKey(r.start_time);
+    if (!buckets[k]) continue;
+    buckets[k].pumpCount += 1;
+    buckets[k].pumpMl += Math.round(toMl(r.amount || 0, r.unit));
+  }
+  for (const r of diapers) {
+    const k = dayKey(r.time);
+    if (!buckets[k]) continue;
+    buckets[k].diaperCount += 1;
+    if (r.wet) buckets[k].diaperWet += 1;
+    if (r.dirty) buckets[k].diaperDirty += 1;
+  }
+
+  const daily = Object.values(buckets);
+
+  const breastFeeds = feedings.filter(hasBreast);
+  const bottleFeeds = feedings.filter((f) => hasBottle(f) && f.amount != null);
+
+  const totals = {
+    breastCount: breastFeeds.length,
+    bottleCount: bottleFeeds.length,
+    diaperCount: diapers.length,
+    pumpCount: pumps.length,
+    bottleMl: Math.round(bottleFeeds.reduce((s, r) => s + toMl(r.amount, r.unit), 0)),
+    pumpMl: Math.round(pumps.reduce((s, r) => s + toMl(r.amount || 0, r.unit), 0)),
+    breastMinutes: Math.round(breastFeeds.reduce((s, r) => s + (r.left_seconds + r.right_seconds) / 60, 0)),
+    leftMinutes: Math.round(breastFeeds.reduce((s, r) => s + r.left_seconds / 60, 0)),
+    rightMinutes: Math.round(breastFeeds.reduce((s, r) => s + r.right_seconds / 60, 0)),
+  };
+
+  // Milk source: breast nursing counts as breast milk; a bottle counts by its content.
+  const milkSplit = { breast: 0, formula: 0 };
+  for (const f of feedings) {
+    if (hasBreast(f)) milkSplit.breast += 1;
+    if (hasBottle(f) && f.amount != null) milkSplit[f.milk_type === 'formula' ? 'formula' : 'breast'] += 1;
+  }
+
+  ok(res, { days, daily, totals, milkSplit });
+});
+
+/* ------------------------- caregiver views ------------------------- */
+// Caregivers only track medications, so their history is just the dose list
+// (shaped like a timeline item) and their stats are dose counts.
+
+router.get('/caregiver-timeline', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return ok(res, []);
+  const meds = db
+    .prepare('SELECT * FROM med_doses WHERE caregiver_id = ? ORDER BY time DESC')
+    .all(caregiver)
+    .map((r) => ({ ...r, kind: 'med', when: r.time }));
+  const temperatures = db
+    .prepare('SELECT * FROM temperatures WHERE caregiver_id = ?')
+    .all(caregiver)
+    .map((r) => ({ ...r, kind: 'temperature', when: r.time }));
+  const all = [...meds, ...temperatures].sort((a, b) => (a.when < b.when ? 1 : -1));
+  ok(res, all);
+});
+
+router.get('/caregiver-stats', (req, res) => {
+  const caregiver = caregiverScope(req);
+  const days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  since.setHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+
+  const empty = { days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [] };
+  if (!caregiver) return ok(res, empty);
+
+  const doses = db.prepare('SELECT * FROM med_doses WHERE caregiver_id = ? AND time >= ?').all(caregiver, sinceIso);
+
+  const dayKey = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const buckets = {};
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setDate(since.getDate() + i);
+    buckets[dayKey(d)] = {
+      date: dayKey(d),
+      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      doseCount: 0,
+    };
+  }
+
+  const byMed = {};
+  for (const r of doses) {
+    const k = dayKey(new Date(r.time));
+    if (buckets[k]) buckets[k].doseCount += 1;
+    byMed[r.name] = (byMed[r.name] || 0) + 1;
+  }
+
+  const daily = Object.values(buckets);
+  const totals = { doseCount: doses.length, medCount: Object.keys(byMed).length };
+  const byMedList = Object.entries(byMed)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  ok(res, { days, daily, totals, byMed: byMedList });
+});
+
+export default router;

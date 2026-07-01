@@ -1,0 +1,21 @@
+{
+  "name": "babytrak",
+  "version": "1.0.0",
+  "description": "Local baby tracking app — feedings, bottles, diapers",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "start": "node server/index.js",
+    "postinstall": "npm --prefix client install"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
