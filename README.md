@@ -1,8 +1,8 @@
 # BabyTrak 👶
 
-A small, self-hosted web app to track your baby's **breast feeds**, **bottle feeds**,
-and **diapers** — with a fun, mobile-first UI and charts. Runs entirely on your own
-Linux box; add entries from your phone or iPad over the local network.
+A small, self-hosted web app to track your baby's **breast feeds**, **bottle feeds**, **medications**, **milestones**,
+and **diapers** . Runs entirely on your own machine or VPS.
+Add entries from your phone or iPad over the local network or setup tailscale for remote access.
 
 ## Stack
 
