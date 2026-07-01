@@ -12,6 +12,7 @@ import {
   MoonStars,
   Rulers,
   Thermometer,
+  HeartPulse,
   GenderMale,
   GenderFemale,
   GenderAmbiguous,
@@ -31,6 +32,7 @@ export const KIND_ICONS = {
   sleep: MoonStars,
   measurement: Rulers,
   temperature: Thermometer,
+  bp: HeartPulse,
 };
 
 // Feeding sub-types

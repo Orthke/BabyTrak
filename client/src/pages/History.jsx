@@ -14,6 +14,7 @@ import {
   measurementSummary,
   formatTemp,
   tempMethodLabel,
+  formatBP,
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
@@ -26,20 +27,21 @@ import MedForm from '../forms/MedForm.jsx';
 import MilestoneForm from '../forms/MilestoneForm.jsx';
 import MeasurementForm from '../forms/MeasurementForm.jsx';
 import TemperatureForm from '../forms/TemperatureForm.jsx';
+import BloodPressureForm from '../forms/BloodPressureForm.jsx';
 import SleepForm from '../forms/SleepForm.jsx';
 
 const WetIcon = CONTENT_ICONS.wet;
 const DirtyIcon = CONTENT_ICONS.dirty;
 
-const FORM_BY_KIND = { feed: FeedForm, pump: PumpForm, diaper: DiaperForm, med: MedForm, milestone: MilestoneForm, measurement: MeasurementForm, temperature: TemperatureForm, sleep: SleepForm };
+const FORM_BY_KIND = { feed: FeedForm, pump: PumpForm, diaper: DiaperForm, med: MedForm, milestone: MilestoneForm, measurement: MeasurementForm, temperature: TemperatureForm, bp: BloodPressureForm, sleep: SleepForm };
 
 // Kinds a caregiver logs — the filter only offers these in the caregiver view.
-const CAREGIVER_KINDS = ['med', 'temperature'];
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp'];
 
 // The Track page's out-of-the-box card order (sleep leads, then the OPTIONS
 // order) and the localStorage key it persists a user's custom order under. We
 // mirror both so the filter lists kinds in the same order the user sees on Track.
-const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature'];
+const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp'];
 const TRACK_ORDER_KEY = 'babytrak.trackOrder';
 
 // Kinds in Track-page order: the user's saved order if any, with any known kinds
@@ -171,6 +173,12 @@ function describe(item) {
     return {
       title: formatTemp(item.temp, item.unit) ?? 'Temperature',
       sub: method ? `Temperature · ${method}` : 'Temperature',
+    };
+  }
+  if (item.kind === 'bp') {
+    return {
+      title: `${formatBP(item.systolic, item.diastolic) ?? 'Blood pressure'} mmHg`,
+      sub: item.pulse != null ? `Blood pressure · ${item.pulse} bpm` : 'Blood pressure',
     };
   }
   if (item.kind === 'sleep') {

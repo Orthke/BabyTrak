@@ -10,7 +10,7 @@ import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } 
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { api, serverNow } from '../api.js';
-import { timeAgo, formatMinutes, measurementSummary, formatTemp } from '../utils.js';
+import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP } from '../utils.js';
 import Modal from '../components/Modal.jsx';
 import FeedForm from '../forms/FeedForm.jsx';
 import PumpForm from '../forms/PumpForm.jsx';
@@ -19,6 +19,7 @@ import MedForm from '../forms/MedForm.jsx';
 import MilestoneForm from '../forms/MilestoneForm.jsx';
 import MeasurementForm from '../forms/MeasurementForm.jsx';
 import TemperatureForm from '../forms/TemperatureForm.jsx';
+import BloodPressureForm from '../forms/BloodPressureForm.jsx';
 import SleepForm from '../forms/SleepForm.jsx';
 import SleepCard from '../components/SleepCard.jsx';
 import DragHandle from '../components/DragHandle.jsx';
@@ -76,10 +77,17 @@ const OPTIONS = [
     color: 'var(--c-temp)',
     Form: TemperatureForm,
   },
+  {
+    kind: 'bp',
+    label: 'Blood pressure',
+    sub: 'Systolic / diastolic, with pulse',
+    color: 'var(--c-bp)',
+    Form: BloodPressureForm,
+  },
 ];
 
 // Kinds a caregiver can track (they don't have feeds, diapers, etc.).
-const CAREGIVER_KINDS = ['med', 'temperature'];
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp'];
 
 function tile(color) {
   return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
@@ -108,6 +116,8 @@ function lastSummary(item) {
       return measurementSummary(item);
     case 'temperature':
       return formatTemp(item.temp, item.unit);
+    case 'bp':
+      return formatBP(item.systolic, item.diastolic);
     default:
       return null;
   }

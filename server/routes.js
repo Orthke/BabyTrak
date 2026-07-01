@@ -75,6 +75,7 @@ const deleteBaby = db.transaction((id) => {
   db.prepare('DELETE FROM sleeps WHERE baby_id = ?').run(id);
   db.prepare('DELETE FROM measurements WHERE baby_id = ?').run(id);
   db.prepare('DELETE FROM temperatures WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM blood_pressures WHERE baby_id = ?').run(id);
   return db.prepare('DELETE FROM babies WHERE id = ?').run(id);
 });
 
@@ -110,6 +111,7 @@ router.put('/caregivers/:id', (req, res) => {
 const deleteCaregiver = db.transaction((id) => {
   db.prepare('DELETE FROM med_doses WHERE caregiver_id = ?').run(id);
   db.prepare('DELETE FROM temperatures WHERE caregiver_id = ?').run(id);
+  db.prepare('DELETE FROM blood_pressures WHERE caregiver_id = ?').run(id);
   return db.prepare('DELETE FROM caregivers WHERE id = ?').run(id);
 });
 
@@ -668,6 +670,72 @@ router.delete('/temperatures/:id', (req, res) => {
   ok(res, { deleted: true });
 });
 
+/* ------------------------- blood pressures ------------------------- */
+// A blood-pressure reading for a baby OR a caregiver (exactly one owner set),
+// like temperatures. Systolic/diastolic in mmHg; pulse (bpm) is optional.
+
+const intOrNull = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.round(Number(v)));
+
+router.get('/blood-pressures', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (caregiver) {
+    return ok(res, db.prepare('SELECT * FROM blood_pressures WHERE caregiver_id = ? ORDER BY time DESC').all(caregiver));
+  }
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM blood_pressures WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/blood-pressures', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  const baby = caregiver ? null : babyScope(req);
+  if (!caregiver && !baby) return badRequest(res, 'baby_id or caregiver_id is required');
+  const systolic = intOrNull(b.systolic);
+  const diastolic = intOrNull(b.diastolic);
+  if (systolic == null || diastolic == null) return badRequest(res, 'Systolic and diastolic are required');
+  const info = db
+    .prepare(
+      `INSERT INTO blood_pressures (baby_id, caregiver_id, time, systolic, diastolic, pulse, comment)
+       VALUES (@baby_id, @caregiver_id, @time, @systolic, @diastolic, @pulse, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      caregiver_id: caregiver,
+      time: b.time,
+      systolic,
+      diastolic,
+      pulse: intOrNull(b.pulse),
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM blood_pressures WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/blood-pressures/:id', (req, res) => {
+  const b = req.body;
+  const systolic = intOrNull(b.systolic);
+  const diastolic = intOrNull(b.diastolic);
+  if (systolic == null || diastolic == null) return badRequest(res, 'Systolic and diastolic are required');
+  const info = db
+    .prepare('UPDATE blood_pressures SET time=@time, systolic=@systolic, diastolic=@diastolic, pulse=@pulse, comment=@comment WHERE id=@id')
+    .run({
+      id: req.params.id,
+      time: b.time,
+      systolic,
+      diastolic,
+      pulse: intOrNull(b.pulse),
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM blood_pressures WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/blood-pressures/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM blood_pressures WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
 /* ------------------------------ timeline --------------------------- */
 
 router.get('/timeline', (req, res) => {
@@ -705,8 +773,12 @@ router.get('/timeline', (req, res) => {
     .prepare('SELECT * FROM temperatures WHERE baby_id = ?')
     .all(baby)
     .map((r) => ({ ...r, kind: 'temperature', when: r.time }));
+  const bloodPressures = db
+    .prepare('SELECT * FROM blood_pressures WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'bp', when: r.time }));
 
-  const all = [...feedings, ...pumps, ...diapers, ...meds, ...milestones, ...sleeps, ...measurements, ...temperatures].sort(
+  const all = [...feedings, ...pumps, ...diapers, ...meds, ...milestones, ...sleeps, ...measurements, ...temperatures, ...bloodPressures].sort(
     (a, b) => (a.when < b.when ? 1 : -1)
   );
   ok(res, all);
@@ -855,7 +927,11 @@ router.get('/caregiver-timeline', (req, res) => {
     .prepare('SELECT * FROM temperatures WHERE caregiver_id = ?')
     .all(caregiver)
     .map((r) => ({ ...r, kind: 'temperature', when: r.time }));
-  const all = [...meds, ...temperatures].sort((a, b) => (a.when < b.when ? 1 : -1));
+  const bloodPressures = db
+    .prepare('SELECT * FROM blood_pressures WHERE caregiver_id = ?')
+    .all(caregiver)
+    .map((r) => ({ ...r, kind: 'bp', when: r.time }));
+  const all = [...meds, ...temperatures, ...bloodPressures].sort((a, b) => (a.when < b.when ? 1 : -1));
   ok(res, all);
 });
 

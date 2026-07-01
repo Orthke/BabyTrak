@@ -167,6 +167,21 @@ db.exec(`
     comment      TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- A blood-pressure reading for a baby OR a caregiver (exactly one owner set),
+  -- like temperatures. Stored in mmHg (the universal cuff unit) so no conversion
+  -- is needed. Pulse is optional — many cuffs report it alongside the reading.
+  CREATE TABLE IF NOT EXISTS blood_pressures (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    baby_id      INTEGER REFERENCES babies(id),
+    caregiver_id INTEGER REFERENCES caregivers(id),
+    time         TEXT NOT NULL,
+    systolic     INTEGER NOT NULL,                  -- top number, mmHg
+    diastolic    INTEGER NOT NULL,                  -- bottom number, mmHg
+    pulse        INTEGER,                           -- bpm; null = not recorded
+    comment      TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // --- Lightweight migrations ---
@@ -331,6 +346,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_measurement_baby ON measurements(baby_id);
   CREATE INDEX IF NOT EXISTS idx_temperature_baby ON temperatures(baby_id);
   CREATE INDEX IF NOT EXISTS idx_temperature_caregiver ON temperatures(caregiver_id);
+  CREATE INDEX IF NOT EXISTS idx_bloodpressure_baby ON blood_pressures(baby_id);
+  CREATE INDEX IF NOT EXISTS idx_bloodpressure_caregiver ON blood_pressures(caregiver_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_med_name_cat ON medications(name, category);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_milestone_type_name ON milestone_types(name);
 `);

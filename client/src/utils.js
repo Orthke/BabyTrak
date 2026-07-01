@@ -184,6 +184,7 @@ export const KIND_META = {
   sleep: { label: 'Sleep', color: 'var(--c-sleep)' },
   measurement: { label: 'Measurement', color: 'var(--c-measure)' },
   temperature: { label: 'Temperature', color: 'var(--c-temp)' },
+  bp: { label: 'Blood pressure', color: 'var(--c-bp)' },
 };
 
 // Temperature reading -> "98.6°F". Trims a trailing ".0" so whole numbers read
@@ -202,6 +203,12 @@ export const TEMP_METHODS = [
 ];
 
 export const tempMethodLabel = (v) => TEMP_METHODS.find((m) => m.value === v)?.label ?? null;
+
+// Blood pressure -> "120/80". Returns null if either number is missing.
+export function formatBP(systolic, diastolic) {
+  if (systolic == null || diastolic == null) return null;
+  return `${systolic}/${diastolic}`;
+}
 
 // One-line summary of a measurement, e.g. "8 lb 4 oz · 21.5 in". Honors the unit
 // the value was entered in. Returns null only if neither was recorded.
