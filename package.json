@@ -2,6 +2,7 @@
   "name": "babytrak",
   "version": "1.0.0",
   "description": "Local baby tracking app — feedings, bottles, diapers",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",

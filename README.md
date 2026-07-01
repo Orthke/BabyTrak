@@ -126,3 +126,16 @@ files together).
 | GET | `/api/stats?days=N` | daily aggregates for charts |
 
 (`PUT /:id` is also implemented on each resource for future editing.)
+
+## License
+
+BabyTrak is free software licensed under the **GNU Affero General Public
+License v3.0 or later (AGPL-3.0-or-later)** — see [LICENSE](LICENSE) for the
+full text.
+
+In short: you are free to use, study, share, and modify this software. If you
+distribute it **or run a modified version as a network service**, you must make
+your source code available to users under the same license. This keeps BabyTrak
+and everything built on it free and open — forever.
+
+Copyright (C) 2026 Kelton Orth
