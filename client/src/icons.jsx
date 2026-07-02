@@ -99,6 +99,8 @@ export {
   Check,
   ChevronDown,
   Stopwatch,
+  ChevronLeft,
+  ChevronRight,
   MoonStars,
   InboxFill,
   BarChartLineFill,

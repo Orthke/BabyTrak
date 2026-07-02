@@ -38,6 +38,10 @@
   --shadow: 0 4px 14px rgba(16, 24, 40, 0.09);
 
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Height of the fixed bottom nav (icon + label + padding + border), plus the
+     iOS safe-area inset. Pages that fill the screen (the timeline) pad by this
+     so their content stops exactly at the nav's top edge. */
+  --nav-h: calc(72px + var(--safe-bottom));
 }
 
 :root[data-theme='girl'] {
@@ -1416,16 +1420,104 @@ input[type='datetime-local']::-webkit-datetime-edit {
 
 /* --------------------- timeline (calendar) view --------------------- */
 
-/* The whole calendar scrolls vertically in its own box so the day-of-week
-   header can stick to the top while you scan down through the hours. Height
-   fills what's left under the app header/selector/filter, above the nav. */
-.tl-scroll {
-  height: calc(100dvh - 210px);
-  min-height: 320px;
-  overflow: auto;
+/* The timeline is a full-bleed, single-screen view. Drop app-main's padding so
+   the calendar spans edge to edge, and turn it into a flex column so the page
+   itself never scrolls — only the calendar does. Bottom padding matches the
+   fixed nav so nothing hides beneath it. */
+.app-main:has(.timeline-page) {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 var(--nav-h);
+  overflow: hidden;
+}
+
+.timeline-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Keep the filter off the edges now that the page is full-bleed, and give the
+   date-range navigator room on the left. */
+.timeline-page .history-head {
+  margin: 0;
+  padding: 6px 12px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.tl-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tl-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   border: 1px solid var(--c-border);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--c-card);
+  color: var(--c-muted);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.tl-nav-btn:hover:not(:disabled) {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+}
+
+.tl-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tl-range {
+  min-width: 96px;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slide the columns in from the side we're paging toward. */
+.tl-body.slide-older {
+  animation: tl-slide-from-left 0.18s ease;
+}
+.tl-body.slide-newer {
+  animation: tl-slide-from-right 0.18s ease;
+}
+@keyframes tl-slide-from-left {
+  from {
+    transform: translateX(-22px);
+    opacity: 0.45;
+  }
+}
+@keyframes tl-slide-from-right {
+  from {
+    transform: translateX(22px);
+    opacity: 0.45;
+  }
+}
+
+/* The calendar fills the space under the filter and scrolls vertically on its
+   own, so the sticky day-of-week header stays put while you scan the hours. */
+.tl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-card);
+  /* Allow native one-finger vertical scroll; two-finger pinch is handled in JS
+     (which preventDefaults the browser's own zoom). */
+  touch-action: pan-y;
 }
 
 /* Sticky day-of-week row. Grid template is shared with .tl-body so the gutter
@@ -1491,8 +1583,8 @@ input[type='datetime-local']::-webkit-datetime-edit {
   white-space: nowrap;
 }
 
-/* A day column. The repeating gradient draws a faint line every hour (48px,
-   matching PX_PER_HOUR in Timeline.jsx). */
+/* A day column. The repeating gradient draws a faint line every hour; the band
+   height follows --ph (set on .tl-body from the current zoom in Timeline.jsx). */
 .tl-col {
   position: relative;
   border-left: 1px solid var(--c-border);
@@ -1501,7 +1593,7 @@ input[type='datetime-local']::-webkit-datetime-edit {
     var(--c-border) 0,
     var(--c-border) 1px,
     transparent 1px,
-    transparent 48px
+    transparent var(--ph, 48px)
   );
 }
 

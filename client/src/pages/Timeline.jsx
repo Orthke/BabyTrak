@@ -1,19 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, serverNow } from '../api.js';
 import { formatTime, KIND_META, FEED_TYPE_META, tile } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
-import { KIND_ICONS, FEED_TYPE_ICONS, Calendar3 } from '../icons.jsx';
+import { KIND_ICONS, FEED_TYPE_ICONS, Calendar3, ChevronLeft, ChevronRight } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
 import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
 
-// How many days of columns to show, and how tall an hour is. DAY_HEIGHT must
-// match the 48px hour band drawn as a gridline background in CSS (.tl-col).
+// How many days of columns to show. The height of one hour is zoomable: it
+// starts at DEFAULT_PPH and pinch/ctrl-scroll scales it within [MIN, MAX] px.
 const DAYS = 5;
-const PX_PER_HOUR = 48;
 const DAY_MS = 86400000;
-const DAY_HEIGHT = PX_PER_HOUR * 24;
+const DEFAULT_PPH = 48;
+const MIN_PPH = 24;
+const MAX_PPH = 200;
+// The zoom level persists across tab changes (and reloads) — view preference
+// only, so localStorage rather than the DB.
+const PPH_KEY = 'babytrak.timelinePph';
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// The saved zoom, clamped to the allowed range; DEFAULT_PPH if unset/invalid.
+function readSavedPph() {
+  try {
+    const saved = Number(localStorage.getItem(PPH_KEY));
+    if (Number.isFinite(saved) && saved > 0) return clamp(saved, MIN_PPH, MAX_PPH);
+  } catch {
+    /* ignore unavailable storage */
+  }
+  return DEFAULT_PPH;
+}
 
 // Local midnight of the given date.
 function startOfDay(d) {
@@ -21,9 +38,6 @@ function startOfDay(d) {
   x.setHours(0, 0, 0, 0);
   return x;
 }
-
-// Fraction of a day (0–1) that `ms` past midnight represents, in px down the column.
-const yFor = (ms) => (ms / DAY_MS) * DAY_HEIGHT;
 
 // Gutter labels: "12a", "3a" … "9p" every three hours.
 function hourLabel(h) {
@@ -46,6 +60,47 @@ export default function Timeline() {
   const { subjectType, selectedId, selectedBaby, selectedCaregiver } = useBaby();
   const scrollRef = useRef(null);
   const scrolledRef = useRef(false); // only auto-scroll to "now" once per subject
+
+  // Zoom: px per hour. Kept in a ref too so the imperative gesture handlers read
+  // the live value, and a pending scrollTop lets us re-anchor after a re-render.
+  const [pph, setPph] = useState(readSavedPph);
+  const pphRef = useRef(pph);
+  const pendingScrollRef = useRef(null);
+  useEffect(() => {
+    pphRef.current = pph;
+    try {
+      localStorage.setItem(PPH_KEY, String(pph));
+    } catch {
+      /* ignore unavailable storage */
+    }
+  }, [pph]);
+  // Apply the focal-anchored scroll after the taller/shorter grid has laid out.
+  useLayoutEffect(() => {
+    if (pendingScrollRef.current != null && scrollRef.current) {
+      scrollRef.current.scrollTop = pendingScrollRef.current;
+      pendingScrollRef.current = null;
+    }
+  }, [pph]);
+
+  const dayHeight = pph * 24;
+  const yFor = (ms) => (ms / DAY_MS) * dayHeight;
+
+  // Which 5-day window is shown: 0 = ending today, negative = older windows.
+  // Swiping (or the arrows) shifts by a whole window; you can't page past today.
+  const [dayOffset, setDayOffset] = useState(0);
+  const [slideDir, setSlideDir] = useState(null); // 'older' | 'newer', for the enter animation
+  const offsetRef = useRef(0);
+  useEffect(() => {
+    offsetRef.current = dayOffset;
+  }, [dayOffset]);
+
+  const shift = useCallback((dir) => {
+    const cur = offsetRef.current;
+    const next = dir === 'newer' ? Math.min(0, cur + DAYS) : cur - DAYS;
+    if (next === cur) return;
+    setSlideDir(dir);
+    setDayOffset(next);
+  }, []);
 
   const isCaregiver = subjectType === 'caregiver';
   const caregiverId = selectedCaregiver?.id;
@@ -70,10 +125,91 @@ export default function Timeline() {
   // the most recent events are what you want in view first.
   useEffect(() => {
     if (!items || scrolledRef.current || !scrollRef.current) return;
-    const nowMin = (serverNow() - startOfDay(new Date()).getTime()) / 60000;
-    scrollRef.current.scrollTop = Math.max(0, yFor(nowMin * 60000) - 120);
+    const nowMs = serverNow() - startOfDay(new Date()).getTime();
+    scrollRef.current.scrollTop = Math.max(0, (nowMs / DAY_MS) * (pphRef.current * 24) - 120);
     scrolledRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
+
+  // Pinch-to-zoom (two-finger touch) and ctrl/⌘ + wheel (trackpad pinch) scale
+  // the hour height, keeping the pinched point anchored under the fingers. We
+  // attach native non-passive listeners so we can preventDefault the browser's
+  // own page zoom; the element re-mounts on each load, so we re-bind per `items`.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const distance = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const headH = () => el.querySelector('.tl-head')?.offsetHeight ?? 0;
+    // Content-space (tl-body) fraction of the day at viewport offset `y`.
+    const fractionAt = (y, startPph) => Math.max(0, (el.scrollTop + y - headH()) / (startPph * 24));
+    // Re-anchor: after zooming to `nextPph`, keep `fraction` sitting at offset `y`.
+    const zoomTo = (nextPph, fraction, y) => {
+      const next = clamp(nextPph, MIN_PPH, MAX_PPH);
+      pendingScrollRef.current = fraction * next * 24 + headH() - y;
+      setPph(next);
+    };
+
+    const g = { active: false, startDist: 0, startPph: DEFAULT_PPH, fraction: 0, midY: 0 };
+    const sw = { tracking: false, x: 0, y: 0 }; // one-finger horizontal swipe
+    const SWIPE_MIN = 55; // px of horizontal travel to page the window
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 1) {
+        sw.tracking = true;
+        sw.x = e.touches[0].clientX;
+        sw.y = e.touches[0].clientY;
+        return;
+      }
+      sw.tracking = false; // a second finger means pinch, not swipe
+      if (e.touches.length !== 2) return;
+      const rect = el.getBoundingClientRect();
+      g.midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      g.startDist = distance(e.touches);
+      g.startPph = pphRef.current;
+      g.fraction = fractionAt(g.midY, g.startPph);
+      g.active = true;
+      e.preventDefault();
+    };
+    const onTouchMove = (e) => {
+      if (!g.active || e.touches.length !== 2) return;
+      e.preventDefault();
+      zoomTo(g.startPph * (distance(e.touches) / g.startDist), g.fraction, g.midY);
+    };
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) g.active = false;
+      // Commit a horizontal swipe once the last finger lifts: dominant, far enough.
+      if (sw.tracking && e.touches.length === 0) {
+        const t = e.changedTouches[0];
+        const dx = t.clientX - sw.x;
+        const dy = t.clientY - sw.y;
+        if (Math.abs(dx) > SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          shift(dx > 0 ? 'older' : 'newer'); // drag right → older, left → newer
+        }
+      }
+      sw.tracking = false;
+    };
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return; // trackpad pinch surfaces as ctrl+wheel
+      e.preventDefault();
+      const y = e.clientY - el.getBoundingClientRect().top;
+      const startPph = pphRef.current;
+      zoomTo(startPph * Math.exp(-e.deltaY * 0.01), fractionAt(y, startPph), y);
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [items, shift]);
 
   const onEdited = () => {
     setEditing(null);
@@ -85,12 +221,17 @@ export default function Timeline() {
   }
 
   const todayStart = startOfDay(new Date());
-  // Oldest → newest, so today sits in the rightmost column.
+  // The window ends `dayOffset` days from today; columns run oldest → newest so
+  // the most recent day sits on the right.
+  const windowEnd = new Date(todayStart);
+  windowEnd.setDate(windowEnd.getDate() + dayOffset);
   const days = Array.from({ length: DAYS }, (_, i) => {
-    const d = new Date(todayStart);
+    const d = new Date(windowEnd);
     d.setDate(d.getDate() - (DAYS - 1 - i));
     return d;
   });
+  const fmtDay = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const rangeLabel = `${fmtDay(days[0])} – ${fmtDay(days[DAYS - 1])}`;
 
   const shown = items.filter((it) => shownKinds.has(it.kind));
   const hasAny = shown.length > 0;
@@ -98,7 +239,24 @@ export default function Timeline() {
 
   return (
     <div className="timeline-page">
-      <div className="history-head">{filterMenu}</div>
+      <div className="history-head">
+        <div className="tl-nav">
+          <button type="button" className="tl-nav-btn" onClick={() => shift('older')} aria-label="Earlier days">
+            <ChevronLeft size={16} />
+          </button>
+          <span className="tl-range">{rangeLabel}</span>
+          <button
+            type="button"
+            className="tl-nav-btn"
+            onClick={() => shift('newer')}
+            disabled={dayOffset === 0}
+            aria-label="Later days"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        {filterMenu}
+      </div>
 
       {!hasAny && (
         <p className="empty">
@@ -122,10 +280,14 @@ export default function Timeline() {
           })}
         </div>
 
-        <div className="tl-body" style={{ height: DAY_HEIGHT }}>
+        <div
+          key={dayOffset}
+          className={`tl-body ${slideDir === 'older' ? 'slide-older' : slideDir === 'newer' ? 'slide-newer' : ''}`}
+          style={{ height: dayHeight, '--ph': `${pph}px` }}
+        >
           <div className="tl-gutter">
             {HOUR_MARKS.map((h) => (
-              <span key={h} className="tl-hour" style={{ top: h * PX_PER_HOUR }}>
+              <span key={h} className="tl-hour" style={{ top: h * pph }}>
                 {hourLabel(h)}
               </span>
             ))}
