@@ -10,7 +10,7 @@ import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } 
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { api, serverNow } from '../api.js';
-import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP } from '../utils.js';
+import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP, formatBloodSugar } from '../utils.js';
 import Modal from '../components/Modal.jsx';
 import FeedForm from '../forms/FeedForm.jsx';
 import PumpForm from '../forms/PumpForm.jsx';
@@ -20,9 +20,11 @@ import MilestoneForm from '../forms/MilestoneForm.jsx';
 import MeasurementForm from '../forms/MeasurementForm.jsx';
 import TemperatureForm from '../forms/TemperatureForm.jsx';
 import BloodPressureForm from '../forms/BloodPressureForm.jsx';
+import BloodSugarForm from '../forms/BloodSugarForm.jsx';
 import SleepForm from '../forms/SleepForm.jsx';
 import SleepCard from '../components/SleepCard.jsx';
 import DragHandle from '../components/DragHandle.jsx';
+import HideToggle from '../components/HideToggle.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
 import { KIND_ICONS, PlayFill, Pencil } from '../icons.jsx';
@@ -85,10 +87,17 @@ const OPTIONS = [
     Form: BloodPressureForm,
     caregiverOnly: true, // blood pressure is tracked for caregivers, not babies
   },
+  {
+    kind: 'sugar',
+    label: 'Blood sugar',
+    sub: 'Glucose reading, fasting or with meals',
+    color: 'var(--c-sugar)',
+    Form: BloodSugarForm,
+  },
 ];
 
 // Kinds a caregiver can track (they don't have feeds, diapers, etc.).
-const CAREGIVER_KINDS = ['med', 'temperature', 'bp'];
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar'];
 
 function tile(color) {
   return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
@@ -119,6 +128,8 @@ function lastSummary(item) {
       return formatTemp(item.temp, item.unit);
     case 'bp':
       return formatBP(item.systolic, item.diastolic);
+    case 'sugar':
+      return formatBloodSugar(item.value, item.unit);
     default:
       return null;
   }
@@ -139,6 +150,10 @@ const BABY_KINDS = OPTIONS.filter((o) => !o.caregiverOnly).map((o) => o.kind);
 // follow the OPTIONS order. The user can reorder them and we persist that.
 const DEFAULT_ORDER = ['sleep', ...BABY_KINDS];
 const ORDER_KEY = 'babytrak.trackOrder';
+// Cards the user has hidden, scoped by subject type: { baby: [...], caregiver:
+// [...] } so hiding a card for babies doesn't hide it for caregivers (and vice
+// versa). The history/timeline filter reads the same key for the same scope.
+const HIDDEN_KEY = 'babytrak.hiddenKinds';
 
 function loadOrder() {
   try {
@@ -148,6 +163,25 @@ function loadOrder() {
     /* ignore malformed storage */
   }
   return DEFAULT_ORDER;
+}
+
+// The whole { baby, caregiver } hidden map. Tolerates a legacy flat array from an
+// earlier build by treating it as the baby scope (that's the view it came from).
+function loadHiddenMap() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HIDDEN_KEY) || 'null');
+    if (Array.isArray(saved)) return { baby: saved.filter((k) => typeof k === 'string') };
+    if (saved && typeof saved === 'object') return saved;
+  } catch {
+    /* ignore malformed storage */
+  }
+  return {};
+}
+
+// The hidden set for one scope ('baby' | 'caregiver').
+function loadHidden(scope) {
+  const arr = loadHiddenMap()[scope];
+  return new Set(Array.isArray(arr) ? arr.filter((k) => typeof k === 'string') : []);
 }
 
 // Wraps a track card so it can be dragged to reorder via its grip handle.
@@ -189,7 +223,7 @@ function SortableTrackItem({ id, children }) {
   });
 }
 
-function OptionCard({ option, item, drag, onOpen, reordering }) {
+function OptionCard({ option, item, drag, onOpen, reordering, hidden, onToggleHide }) {
   const Icon = KIND_ICONS[option.kind];
   const summary = item && lastSummary(item);
   return (
@@ -197,7 +231,7 @@ function OptionCard({ option, item, drag, onOpen, reordering }) {
       ref={drag.setNodeRef}
       type="button"
       style={drag.style}
-      className={`track-btn ${drag.isDragging ? 'dragging' : ''}`}
+      className={`track-btn ${drag.isDragging ? 'dragging' : ''} ${hidden ? 'card-hidden' : ''}`}
       onClick={drag.guardClick(onOpen)}
     >
       <span className="icon-tile" style={tile(option.color)}>
@@ -218,6 +252,7 @@ function OptionCard({ option, item, drag, onOpen, reordering }) {
           <div className="track-last-empty">None yet</div>
         )}
       </span>
+      {reordering && <HideToggle hidden={hidden} onToggle={onToggleHide} />}
       {reordering && <DragHandle handleProps={drag.handleProps} />}
     </button>
   );
@@ -241,18 +276,47 @@ export default function Track() {
   // Card order is user-customizable (drag to reorder) and persisted. Caregivers
   // only see the medication card, so reordering applies to the baby view.
   const [order, setOrder] = useState(loadOrder);
-  // Reorder mode is off by default: the drag handles only appear after the user
-  // taps "Reorder Cards", so normal taps open a card without a grip in the way.
+  // Cards the user has hidden, scoped to the current subject type (see HIDDEN_KEY).
+  // Hidden cards drop off this view and out of the history/timeline filter until
+  // shown again. Reloaded below when switching between a baby and a caregiver.
+  const hiddenScope = isCaregiver ? 'caregiver' : 'baby';
+  const [hidden, setHidden] = useState(() => loadHidden(hiddenScope));
+  useEffect(() => {
+    setHidden(loadHidden(hiddenScope));
+  }, [hiddenScope]);
+  // Reorder mode is off by default: the drag handles and hide toggles only appear
+  // after the user taps "Reorder Cards", so normal taps open a card without a grip
+  // or eye in the way.
   const [reordering, setReordering] = useState(false);
   const availableKinds = isCaregiver ? CAREGIVER_KINDS : DEFAULT_ORDER;
   const orderedKinds = [
     ...order.filter((k) => availableKinds.includes(k)),
     ...availableKinds.filter((k) => !order.includes(k)), // newly added kinds fall in last
   ];
+  // In reorder mode we show every card (so hidden ones can be turned back on);
+  // otherwise hidden cards are omitted entirely.
+  const visibleKinds = orderedKinds.filter((k) => !hidden.has(k));
+  const renderedKinds = reordering ? orderedKinds : visibleKinds;
   // Nothing to reorder with a single card (e.g. caregivers only see medication),
-  // so the toggle and handles never show there.
+  // so the toggle and handles never show there. Based on the full set so the
+  // control stays available to restore hidden cards.
   const canReorder = orderedKinds.length > 1;
   const showHandles = reordering && canReorder;
+
+  const toggleHide = (kind) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      try {
+        const map = loadHiddenMap();
+        map[hiddenScope] = [...next];
+        localStorage.setItem(HIDDEN_KEY, JSON.stringify(map));
+      } catch {
+        /* ignore storage failures */
+      }
+      return next;
+    });
 
   // Drag begins after a short press-and-hold (see SENSOR_OPTIONS).
   const sensors = useSensors(useSensor(PointerSensor, SENSOR_OPTIONS));
@@ -349,9 +413,9 @@ export default function Track() {
         modifiers={[restrictToVerticalAxis, restrictToParentElement]}
         onDragEnd={onDragEnd}
       >
-        <SortableContext items={orderedKinds} strategy={verticalListSortingStrategy}>
+        <SortableContext items={renderedKinds} strategy={verticalListSortingStrategy}>
           <div className="track-grid">
-            {orderedKinds.map((kind) =>
+            {renderedKinds.map((kind) =>
               kind === 'sleep' ? (
                 <SortableTrackItem key="sleep" id="sleep">
                   {(drag) => (
@@ -362,6 +426,8 @@ export default function Track() {
                       busy={napBusy}
                       drag={drag}
                       reordering={showHandles}
+                      hidden={hidden.has('sleep')}
+                      onToggleHide={() => toggleHide('sleep')}
                     />
                   )}
                 </SortableTrackItem>
@@ -374,6 +440,8 @@ export default function Track() {
                       drag={drag}
                       onOpen={() => setOpen(kind)}
                       reordering={showHandles}
+                      hidden={hidden.has(kind)}
+                      onToggleHide={() => toggleHide(kind)}
                     />
                   )}
                 </SortableTrackItem>
@@ -384,14 +452,22 @@ export default function Track() {
       </DndContext>
 
       {canReorder && (
-        <button
-          type="button"
-          className="reorder-toggle"
-          aria-pressed={reordering}
-          onClick={() => setReordering((r) => !r)}
-        >
-          {reordering ? 'Done' : 'Reorder Cards'}
-        </button>
+        <>
+          <button
+            type="button"
+            className="reorder-toggle"
+            aria-pressed={reordering}
+            onClick={() => setReordering((r) => !r)}
+          >
+            {reordering ? 'Done' : 'Reorder or Hide Cards'}
+          </button>
+          {reordering && (
+            <p className="reorder-hint">
+              Drag the grip to reorder. Tap the eye to hide a card — hidden cards drop off this
+              screen and the history &amp; timeline filters.
+            </p>
+          )}
+        </>
       )}
 
       {active && (

@@ -76,6 +76,7 @@ const deleteBaby = db.transaction((id) => {
   db.prepare('DELETE FROM measurements WHERE baby_id = ?').run(id);
   db.prepare('DELETE FROM temperatures WHERE baby_id = ?').run(id);
   db.prepare('DELETE FROM blood_pressures WHERE baby_id = ?').run(id);
+  db.prepare('DELETE FROM blood_sugars WHERE baby_id = ?').run(id);
   return db.prepare('DELETE FROM babies WHERE id = ?').run(id);
 });
 
@@ -112,6 +113,7 @@ const deleteCaregiver = db.transaction((id) => {
   db.prepare('DELETE FROM med_doses WHERE caregiver_id = ?').run(id);
   db.prepare('DELETE FROM temperatures WHERE caregiver_id = ?').run(id);
   db.prepare('DELETE FROM blood_pressures WHERE caregiver_id = ?').run(id);
+  db.prepare('DELETE FROM blood_sugars WHERE caregiver_id = ?').run(id);
   return db.prepare('DELETE FROM caregivers WHERE id = ?').run(id);
 });
 
@@ -736,6 +738,74 @@ router.delete('/blood-pressures/:id', (req, res) => {
   ok(res, { deleted: true });
 });
 
+/* -------------------------- blood sugars --------------------------- */
+// A blood-sugar (glucose) reading for a baby OR a caregiver (exactly one owner
+// set), like temperatures. Stored in the unit it was entered in; `context`
+// records the situation (fasting, before/after a meal, bedtime, random).
+
+const SUGAR_UNITS = ['mg/dL', 'mmol/L'];
+const sugarUnit = (u) => (SUGAR_UNITS.includes(u) ? u : 'mg/dL');
+const SUGAR_CONTEXTS = ['fasting', 'before_meal', 'after_meal', 'bedtime', 'random'];
+const sugarContext = (c) => (SUGAR_CONTEXTS.includes(c) ? c : 'random');
+
+router.get('/blood-sugars', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (caregiver) {
+    return ok(res, db.prepare('SELECT * FROM blood_sugars WHERE caregiver_id = ? ORDER BY time DESC').all(caregiver));
+  }
+  const baby = babyScope(req);
+  if (!baby) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM blood_sugars WHERE baby_id = ? ORDER BY time DESC').all(baby));
+});
+
+router.post('/blood-sugars', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  const baby = caregiver ? null : babyScope(req);
+  if (!caregiver && !baby) return badRequest(res, 'baby_id or caregiver_id is required');
+  const value = numOrNull(b.value);
+  if (value == null) return badRequest(res, 'A blood sugar reading is required');
+  const info = db
+    .prepare(
+      `INSERT INTO blood_sugars (baby_id, caregiver_id, time, value, unit, context, comment)
+       VALUES (@baby_id, @caregiver_id, @time, @value, @unit, @context, @comment)`
+    )
+    .run({
+      baby_id: baby,
+      caregiver_id: caregiver,
+      time: b.time,
+      value,
+      unit: sugarUnit(b.unit),
+      context: sugarContext(b.context),
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM blood_sugars WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/blood-sugars/:id', (req, res) => {
+  const b = req.body;
+  const value = numOrNull(b.value);
+  if (value == null) return badRequest(res, 'A blood sugar reading is required');
+  const info = db
+    .prepare('UPDATE blood_sugars SET time=@time, value=@value, unit=@unit, context=@context, comment=@comment WHERE id=@id')
+    .run({
+      id: req.params.id,
+      time: b.time,
+      value,
+      unit: sugarUnit(b.unit),
+      context: sugarContext(b.context),
+      comment: b.comment ?? null,
+    });
+  if (info.changes === 0) return notFound(res);
+  ok(res, db.prepare('SELECT * FROM blood_sugars WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/blood-sugars/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM blood_sugars WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
 /* ------------------------------ timeline --------------------------- */
 
 router.get('/timeline', (req, res) => {
@@ -777,8 +847,12 @@ router.get('/timeline', (req, res) => {
     .prepare('SELECT * FROM blood_pressures WHERE baby_id = ?')
     .all(baby)
     .map((r) => ({ ...r, kind: 'bp', when: r.time }));
+  const bloodSugars = db
+    .prepare('SELECT * FROM blood_sugars WHERE baby_id = ?')
+    .all(baby)
+    .map((r) => ({ ...r, kind: 'sugar', when: r.time }));
 
-  const all = [...feedings, ...pumps, ...diapers, ...meds, ...milestones, ...sleeps, ...measurements, ...temperatures, ...bloodPressures].sort(
+  const all = [...feedings, ...pumps, ...diapers, ...meds, ...milestones, ...sleeps, ...measurements, ...temperatures, ...bloodPressures, ...bloodSugars].sort(
     (a, b) => (a.when < b.when ? 1 : -1)
   );
   ok(res, all);
@@ -931,7 +1005,11 @@ router.get('/caregiver-timeline', (req, res) => {
     .prepare('SELECT * FROM blood_pressures WHERE caregiver_id = ?')
     .all(caregiver)
     .map((r) => ({ ...r, kind: 'bp', when: r.time }));
-  const all = [...meds, ...temperatures, ...bloodPressures].sort((a, b) => (a.when < b.when ? 1 : -1));
+  const bloodSugars = db
+    .prepare('SELECT * FROM blood_sugars WHERE caregiver_id = ?')
+    .all(caregiver)
+    .map((r) => ({ ...r, kind: 'sugar', when: r.time }));
+  const all = [...meds, ...temperatures, ...bloodPressures, ...bloodSugars].sort((a, b) => (a.when < b.when ? 1 : -1));
   ok(res, all);
 });
 

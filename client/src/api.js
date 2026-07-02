@@ -134,6 +134,16 @@ export const api = {
   updateBloodPressure: (id, data) => request(`/blood-pressures/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteBloodPressure: (id) => request(`/blood-pressures/${id}`, { method: 'DELETE' }),
 
+  // Blood sugars / glucose (a reading for a baby OR a caregiver)
+  listBloodSugars: (babyId) => request(`/blood-sugars${q(babyId)}`),
+  listCaregiverBloodSugars: (caregiverId) => request(`/blood-sugars${qc(caregiverId)}`),
+  createBloodSugar: (data, babyId) =>
+    request('/blood-sugars', { method: 'POST', body: JSON.stringify(withBaby(data, babyId)) }),
+  createCaregiverBloodSugar: (data, caregiverId) =>
+    request('/blood-sugars', { method: 'POST', body: JSON.stringify(withCaregiver(data, caregiverId)) }),
+  updateBloodSugar: (id, data) => request(`/blood-sugars/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBloodSugar: (id) => request(`/blood-sugars/${id}`, { method: 'DELETE' }),
+
   // Aggregates
   timeline: (babyId) => request(`/timeline${q(babyId)}`),
   // Pass `date` (YYYY-MM-DD) to scope to a single calendar day instead of a range.
@@ -154,6 +164,7 @@ export function deleteByKind(kind, id) {
   if (kind === 'measurement') return api.deleteMeasurement(id);
   if (kind === 'temperature') return api.deleteTemperature(id);
   if (kind === 'bp') return api.deleteBloodPressure(id);
+  if (kind === 'sugar') return api.deleteBloodSugar(id);
   throw new Error(`Unknown kind: ${kind}`);
 }
 
@@ -168,5 +179,6 @@ export function updateByKind(kind, id, data) {
   if (kind === 'measurement') return api.updateMeasurement(id, data);
   if (kind === 'temperature') return api.updateTemperature(id, data);
   if (kind === 'bp') return api.updateBloodPressure(id, data);
+  if (kind === 'sugar') return api.updateBloodSugar(id, data);
   throw new Error(`Unknown kind: ${kind}`);
 }

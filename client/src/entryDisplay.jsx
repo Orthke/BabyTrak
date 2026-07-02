@@ -16,6 +16,8 @@ import {
   formatTemp,
   tempMethodLabel,
   formatBP,
+  formatBloodSugar,
+  glucoseContextLabel,
 } from './utils.js';
 import { KIND_ICONS, FEED_TYPE_ICONS, CONTENT_ICONS } from './icons.jsx';
 import FeedForm from './forms/FeedForm.jsx';
@@ -26,6 +28,7 @@ import MilestoneForm from './forms/MilestoneForm.jsx';
 import MeasurementForm from './forms/MeasurementForm.jsx';
 import TemperatureForm from './forms/TemperatureForm.jsx';
 import BloodPressureForm from './forms/BloodPressureForm.jsx';
+import BloodSugarForm from './forms/BloodSugarForm.jsx';
 import SleepForm from './forms/SleepForm.jsx';
 
 const WetIcon = CONTENT_ICONS.wet;
@@ -40,6 +43,7 @@ export const FORM_BY_KIND = {
   measurement: MeasurementForm,
   temperature: TemperatureForm,
   bp: BloodPressureForm,
+  sugar: BloodSugarForm,
   sleep: SleepForm,
 };
 
@@ -100,6 +104,13 @@ export function describe(item) {
     return {
       title: `${formatBP(item.systolic, item.diastolic) ?? 'Blood pressure'} mmHg`,
       sub: item.pulse != null ? `Blood pressure · ${item.pulse} bpm` : 'Blood pressure',
+    };
+  }
+  if (item.kind === 'sugar') {
+    const ctx = glucoseContextLabel(item.context);
+    return {
+      title: formatBloodSugar(item.value, item.unit) ?? 'Blood sugar',
+      sub: ctx ? `Blood sugar · ${ctx}` : 'Blood sugar',
     };
   }
   if (item.kind === 'sleep') {

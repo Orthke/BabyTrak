@@ -195,8 +195,11 @@ function BabyDashboard() {
           : `${selectedBaby?.name ?? 'Baby'}'s last ${days} days`}
       </p>
       <div className="range-tabs">
-        <button className={date === today ? 'active' : ''} onClick={() => setDate(today)}>
-          Today
+        <button
+          className={isDay && date !== yesterday ? 'active' : ''}
+          onClick={() => setDate(today)}
+        >
+          {isDay && date !== today && date !== yesterday ? 'Custom' : 'Today'}
         </button>
         <button className={date === yesterday ? 'active' : ''} onClick={() => setDate(yesterday)}>
           Yesterday
@@ -213,12 +216,6 @@ function BabyDashboard() {
             {d}d
           </button>
         ))}
-        <button
-          className={isDay && date !== today && date !== yesterday ? 'active' : ''}
-          onClick={() => setDate((v) => v || today)}
-        >
-          Day
-        </button>
       </div>
       {isDay && (
         <div className="day-picker">

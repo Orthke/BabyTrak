@@ -3,19 +3,38 @@ import { KIND_META, tile } from '../utils.js';
 import { KIND_ICONS, Check, Funnel, FunnelFill } from '../icons.jsx';
 
 // Kinds a caregiver logs — the filter only offers these in the caregiver view.
-const CAREGIVER_KINDS = ['med', 'temperature', 'bp'];
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar'];
 // Kinds tracked only for caregivers, never babies (excluded from the baby filter).
 const CAREGIVER_ONLY_KINDS = ['bp'];
 
 // The Track page's out-of-the-box card order (sleep leads, then the OPTIONS
-// order) and the localStorage key it persists a user's custom order under. We
-// mirror both so the filter lists kinds in the same order the user sees on Track.
-const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp'];
+// order) and the localStorage keys it persists a user's custom order and hidden
+// cards under. We mirror all three so the filter lists kinds in the same order
+// the user sees on Track and omits the ones they've hidden.
+const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp', 'sugar'];
 const TRACK_ORDER_KEY = 'babytrak.trackOrder';
+const TRACK_HIDDEN_KEY = 'babytrak.hiddenKinds';
+
+// The kinds the user hid on the Track page, for one scope ('baby' | 'caregiver').
+// Hidden state is a { baby, caregiver } map so the two views hide independently;
+// a legacy flat array is treated as the baby scope. Hidden cards drop out of the
+// filter list entirely (and so their entries stop showing in the timeline).
+function hiddenKinds(scope) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRACK_HIDDEN_KEY) || 'null');
+    const arr = Array.isArray(saved) ? (scope === 'baby' ? saved : []) : saved?.[scope];
+    if (Array.isArray(arr) && arr.every((k) => typeof k === 'string')) return new Set(arr);
+  } catch {
+    /* ignore malformed storage */
+  }
+  return new Set();
+}
 
 // Kinds in Track-page order: the user's saved order if any, with any known kinds
 // it's missing appended (and unknown entries dropped) so the list stays complete.
-function trackOrderKinds() {
+// Hidden kinds (for this scope) are removed so the filter never offers a card the
+// user turned off.
+function trackOrderKinds(scope) {
   let saved = null;
   try {
     saved = JSON.parse(localStorage.getItem(TRACK_ORDER_KEY) || 'null');
@@ -23,10 +42,11 @@ function trackOrderKinds() {
     /* ignore malformed storage */
   }
   const base = Array.isArray(saved) && saved.every((k) => typeof k === 'string') ? saved : TRACK_DEFAULT_ORDER;
+  const hidden = hiddenKinds(scope);
   return [
     ...base.filter((k) => TRACK_DEFAULT_ORDER.includes(k)),
     ...TRACK_DEFAULT_ORDER.filter((k) => !base.includes(k)),
-  ];
+  ].filter((k) => !hidden.has(k));
 }
 
 // Top-right dropdown that toggles which kinds show in a timeline. The filter is
@@ -94,9 +114,10 @@ export function FilterMenu({ kinds, shown, allSelected, active, onToggle, onTogg
 export function useKindFilter(isCaregiver) {
   const [enabledKinds, setEnabledKinds] = useState(null); // Set of kinds shown; null = all shown
 
-  // Kinds offered in the filter, in Track-page order. Caregivers only log a
-  // subset; babies see everything except the caregiver-only kinds (blood pressure).
-  const filterKinds = trackOrderKinds().filter((k) =>
+  // Kinds offered in the filter, in Track-page order, minus the cards hidden for
+  // this scope. Caregivers only log a subset; babies see everything except the
+  // caregiver-only kinds (blood pressure).
+  const filterKinds = trackOrderKinds(isCaregiver ? 'caregiver' : 'baby').filter((k) =>
     isCaregiver ? CAREGIVER_KINDS.includes(k) : !CAREGIVER_ONLY_KINDS.includes(k)
   );
   // null = everything shown; otherwise the explicit set of enabled kinds.

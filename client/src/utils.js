@@ -189,6 +189,7 @@ export const KIND_META = {
   measurement: { label: 'Measurement', color: 'var(--c-measure)' },
   temperature: { label: 'Temperature', color: 'var(--c-temp)' },
   bp: { label: 'Blood pressure', color: 'var(--c-bp)' },
+  sugar: { label: 'Blood sugar', color: 'var(--c-sugar)' },
 };
 
 // Inline style for a colored "icon tile": a faint tint of the kind color as the
@@ -220,6 +221,28 @@ export function formatBP(systolic, diastolic) {
   if (systolic == null || diastolic == null) return null;
   return `${systolic}/${diastolic}`;
 }
+
+// mg/dL ⇄ mmol/L for blood glucose. 1 mmol/L = 18.0182 mg/dL.
+export const MGDL_PER_MMOL = 18.0182;
+
+// Blood sugar -> "95 mg/dL" / "5.3 mmol/L". mg/dL reads as a whole number,
+// mmol/L to one decimal. Returns null if the value is missing.
+export function formatBloodSugar(value, unit) {
+  if (value == null) return null;
+  if (unit === 'mmol/L') return `${+Number(value).toFixed(1)} mmol/L`;
+  return `${Math.round(Number(value))} mg/dL`;
+}
+
+// When a glucose reading was taken — the context that makes the number readable.
+export const GLUCOSE_CONTEXTS = [
+  { value: 'fasting', label: 'Fasting' },
+  { value: 'before_meal', label: 'Before meal' },
+  { value: 'after_meal', label: 'After meal' },
+  { value: 'bedtime', label: 'Bedtime' },
+  { value: 'random', label: 'Random' },
+];
+
+export const glucoseContextLabel = (v) => GLUCOSE_CONTEXTS.find((c) => c.value === v)?.label ?? null;
 
 // One-line summary of a measurement, e.g. "8 lb 4 oz · 21.5 in". Honors the unit
 // the value was entered in. Returns null only if neither was recorded.

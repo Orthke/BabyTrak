@@ -182,6 +182,23 @@ db.exec(`
     comment      TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- A blood-sugar (glucose) reading for a baby OR a caregiver (exactly one owner
+  -- set), like temperatures/blood_pressures. The value is stored in the unit it
+  -- was entered in ('mg/dL' | 'mmol/L') since the conversion is a simple factor.
+  -- The context column records when the reading was taken (fasting, before/after
+  -- a meal, bedtime, random), which is what makes a glucose number interpretable.
+  CREATE TABLE IF NOT EXISTS blood_sugars (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    baby_id      INTEGER REFERENCES babies(id),
+    caregiver_id INTEGER REFERENCES caregivers(id),
+    time         TEXT NOT NULL,
+    value        REAL NOT NULL,                     -- reading, in the given unit
+    unit         TEXT NOT NULL DEFAULT 'mg/dL',     -- 'mg/dL' | 'mmol/L'
+    context      TEXT NOT NULL DEFAULT 'random',    -- 'fasting'|'before_meal'|'after_meal'|'bedtime'|'random'
+    comment      TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // --- Lightweight migrations ---
@@ -348,6 +365,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_temperature_caregiver ON temperatures(caregiver_id);
   CREATE INDEX IF NOT EXISTS idx_bloodpressure_baby ON blood_pressures(baby_id);
   CREATE INDEX IF NOT EXISTS idx_bloodpressure_caregiver ON blood_pressures(caregiver_id);
+  CREATE INDEX IF NOT EXISTS idx_bloodsugar_baby ON blood_sugars(baby_id);
+  CREATE INDEX IF NOT EXISTS idx_bloodsugar_caregiver ON blood_sugars(caregiver_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_med_name_cat ON medications(name, category);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_milestone_type_name ON milestone_types(name);
 `);

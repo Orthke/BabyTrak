@@ -11,6 +11,7 @@ import {
   Rulers,
   Thermometer,
   HeartPulse,
+  Speedometer2,
   GenderMale,
   GenderFemale,
   GenderAmbiguous,
@@ -83,6 +84,7 @@ export const KIND_ICONS = {
   measurement: Rulers,
   temperature: Thermometer,
   bp: HeartPulse,
+  sugar: Speedometer2,
 };
 
 // Feeding sub-types
@@ -138,4 +140,6 @@ export {
   GripVertical,
   Funnel,
   FunnelFill,
+  Eye,
+  EyeSlash,
 } from 'react-bootstrap-icons';

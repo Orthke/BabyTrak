@@ -3,6 +3,7 @@ import { formatDuration, formatMinutes, formatTime, timeAgo, sleepSeconds } from
 import { serverNow } from '../api.js';
 import { KIND_ICONS, PlayFill, StopFill } from '../icons.jsx';
 import DragHandle from './DragHandle.jsx';
+import HideToggle from './HideToggle.jsx';
 
 const MoonIcon = KIND_ICONS.sleep;
 const COLOR = 'var(--c-sleep)';
@@ -15,7 +16,7 @@ function tile() {
 // timeline): if it has no end_time the baby is currently napping and the elapsed
 // time ticks up from start_time; otherwise it shows the last completed nap.
 // `drag` carries the dnd-kit sortable props so the card can be reordered.
-export default function SleepCard({ sleep, onStart, onStop, busy, drag, reordering }) {
+export default function SleepCard({ sleep, onStart, onStop, busy, drag, reordering, hidden, onToggleHide }) {
   const active = !!sleep && !sleep.end_time;
 
   // Re-render once a second only while a nap is running, to advance the clock.
@@ -28,13 +29,19 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
 
   const guard = (fn) => (drag ? drag.guardClick(fn) : fn);
   const isDragging = drag?.isDragging;
-  const handle = drag && reordering ? <DragHandle handleProps={drag.handleProps} /> : null;
+  const controls =
+    drag && reordering ? (
+      <>
+        <HideToggle hidden={hidden} onToggle={onToggleHide} />
+        <DragHandle handleProps={drag.handleProps} />
+      </>
+    ) : null;
 
   if (active) {
     return (
       <div
         ref={drag?.setNodeRef}
-        className={`track-btn sleep-card active ${isDragging ? 'dragging' : ''}`}
+        className={`track-btn sleep-card active ${isDragging ? 'dragging' : ''} ${hidden ? 'card-hidden' : ''}`}
         style={{ ...drag?.style, '--accent': COLOR }}
       >
         <span className="icon-tile" style={tile()}>
@@ -50,7 +57,7 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
             <StopFill size={14} /> Stop nap
           </button>
         </span>
-        {handle}
+        {controls}
       </div>
     );
   }
@@ -59,7 +66,7 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
     <button
       ref={drag?.setNodeRef}
       type="button"
-      className={`track-btn ${isDragging ? 'dragging' : ''}`}
+      className={`track-btn ${isDragging ? 'dragging' : ''} ${hidden ? 'card-hidden' : ''}`}
       style={drag?.style}
       onClick={guard(onStart)}
       disabled={busy}
@@ -86,7 +93,7 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
           <div className="track-last-empty">None yet</div>
         )}
       </span>
-      {handle}
+      {controls}
     </button>
   );
 }
