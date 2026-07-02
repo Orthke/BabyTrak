@@ -24,7 +24,7 @@ import {
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
-import { HeartFill, CupStraw, Droplet, DropletHalf, Diaper, GraphUp, Rulers } from '../icons.jsx';
+import { Breast, CupStraw, Droplet, DropletHalf, Diaper, GraphUp, Rulers } from '../icons.jsx';
 import CaregiverDashboard from './CaregiverDashboard.jsx';
 
 const COLORS = {
@@ -227,7 +227,7 @@ function BabyDashboard() {
       )}
 
       <div className="stat-grid">
-        <StatCard Icon={HeartFill} color={COLORS.breast} value={totals.breastCount} label="Breast feeds" />
+        <StatCard Icon={Breast} color={COLORS.breast} value={totals.breastCount} label="Breast feeds" />
         <StatCard Icon={CupStraw} color={COLORS.bottle} value={totals.bottleCount} label="Bottles" />
         <StatCard Icon={DropletHalf} color={COLORS.pump} value={totals.pumpCount} label="Pump sessions" />
         <StatCard Icon={Droplet} color={COLORS.pump} value={`${totals.pumpMl} ml`} label="Pumped total" />

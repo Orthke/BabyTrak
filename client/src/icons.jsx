@@ -1,6 +1,5 @@
 // Central icon registry so icon choices live in one place and usage stays consistent.
 import {
-  HeartFill,
   CupStraw,
   Cup,
   Droplet,
@@ -43,6 +42,33 @@ export function Diaper({ size = 16, color, className, title, ...props }) {
   );
 }
 
+// Custom breastfeeding glyph. Same API as the react-bootstrap-icons (size/color
+// props, 16×16 viewBox) so it drops in wherever they're used. An outlined,
+// slightly elliptical breast with the areola ring offset just off-center — the
+// two concentric rings read as nursing far better than a generic heart.
+export function Breast({ size = 16, color, className, title, ...props }) {
+  const stroke = color ?? 'currentColor';
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke={stroke}
+      strokeWidth="1.3"
+      className={className}
+      role={title ? 'img' : undefined}
+      aria-hidden={title ? undefined : true}
+      {...props}
+    >
+      {title && <title>{title}</title>}
+      <ellipse cx="8" cy="8" rx="5.6" ry="5" />
+      <circle cx="8.7" cy="9.1" r="1.9" />
+    </svg>
+  );
+}
+
 // Caregivers (parents/others)
 export const CAREGIVER_ICON = PersonFill;
 
@@ -61,7 +87,7 @@ export const KIND_ICONS = {
 
 // Feeding sub-types
 export const FEED_TYPE_ICONS = {
-  breast: HeartFill,
+  breast: Breast,
   bottle: CupStraw,
   both: Cup,
 };
@@ -81,7 +107,6 @@ export const GENDER_ICONS = {
 
 // Re-export the icons used directly throughout the UI.
 export {
-  HeartFill,
   CupStraw,
   Droplet,
   DropletHalf,
