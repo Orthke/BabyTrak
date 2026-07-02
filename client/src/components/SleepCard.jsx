@@ -51,12 +51,14 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
           <div className="label">Napping…</div>
           <div className="sub">Since {formatTime(sleep.start_time)}</div>
         </span>
-        <span className="track-last">
-          <div className="sleep-elapsed">{formatDuration(sleepSeconds(sleep, serverNow()))}</div>
-          <button type="button" className="btn-stop-nap" onClick={guard(onStop)} disabled={busy}>
-            <StopFill size={14} /> Stop nap
-          </button>
-        </span>
+        {!reordering && (
+          <span className="track-last">
+            <div className="sleep-elapsed">{formatDuration(sleepSeconds(sleep, serverNow()))}</div>
+            <button type="button" className="btn-stop-nap" onClick={guard(onStop)} disabled={busy}>
+              <StopFill size={14} /> Stop nap
+            </button>
+          </span>
+        )}
         {controls}
       </div>
     );
@@ -80,19 +82,21 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
           <PlayFill size={12} /> Start a nap
         </div>
       </span>
-      <span className="track-last">
-        {sleep ? (
-          <>
-            <div className="track-last-label">Last sleep</div>
-            <div className="track-last-value" style={{ color: COLOR }}>
-              {formatMinutes(sleepSeconds(sleep))}
-            </div>
-            <div className="track-last-time">{timeAgo(sleep.start_time)}</div>
-          </>
-        ) : (
-          <div className="track-last-empty">None yet</div>
-        )}
-      </span>
+      {!reordering && (
+        <span className="track-last">
+          {sleep ? (
+            <>
+              <div className="track-last-label">Last sleep</div>
+              <div className="track-last-value" style={{ color: COLOR }}>
+                {formatMinutes(sleepSeconds(sleep))}
+              </div>
+              <div className="track-last-time">{timeAgo(sleep.start_time)}</div>
+            </>
+          ) : (
+            <div className="track-last-empty">None yet</div>
+          )}
+        </span>
+      )}
       {controls}
     </button>
   );

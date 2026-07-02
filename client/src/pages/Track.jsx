@@ -241,17 +241,19 @@ function OptionCard({ option, item, drag, onOpen, reordering, hidden, onToggleHi
         <div className="label">{option.label}</div>
         <div className="sub">{option.sub}</div>
       </span>
-      <span className="track-last">
-        {item ? (
-          <>
-            <div className="track-last-label">Last {option.label.toLowerCase()}</div>
-            {summary && <div className="track-last-value" style={{ color: option.color }}>{summary}</div>}
-            <div className="track-last-time">{timeAgo(item.when)}</div>
-          </>
-        ) : (
-          <div className="track-last-empty">None yet</div>
-        )}
-      </span>
+      {!reordering && (
+        <span className="track-last">
+          {item ? (
+            <>
+              <div className="track-last-label">Last {option.label.toLowerCase()}</div>
+              {summary && <div className="track-last-value" style={{ color: option.color }}>{summary}</div>}
+              <div className="track-last-time">{timeAgo(item.when)}</div>
+            </>
+          ) : (
+            <div className="track-last-empty">None yet</div>
+          )}
+        </span>
+      )}
       {reordering && <HideToggle hidden={hidden} onToggle={onToggleHide} />}
       {reordering && <DragHandle handleProps={drag.handleProps} />}
     </button>
