@@ -191,6 +191,13 @@ export const KIND_META = {
   bp: { label: 'Blood pressure', color: 'var(--c-bp)' },
 };
 
+// Inline style for a colored "icon tile": a faint tint of the kind color as the
+// background with the full color as the foreground. Shared by the timeline,
+// history, and filter UIs so every icon chip reads the same.
+export function tile(color) {
+  return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
+}
+
 // Temperature reading -> "98.6°F". Trims a trailing ".0" so whole numbers read
 // cleanly.
 export function formatTemp(temp, unit) {

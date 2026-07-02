@@ -1,221 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, deleteByKind } from '../api.js';
 import {
   formatTime,
   formatDate,
-  formatDuration,
   formatMinutes,
   sleepSeconds,
   KIND_META,
   FEED_TYPE_META,
-  stoolAmountLabel,
-  stoolTextureLabel,
-  stoolColor,
-  measurementSummary,
-  formatTemp,
-  tempMethodLabel,
-  formatBP,
+  tile,
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
-import { KIND_ICONS, FEED_TYPE_ICONS, CONTENT_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown, Check, Funnel, FunnelFill } from '../icons.jsx';
+import { KIND_ICONS, FEED_TYPE_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown } from '../icons.jsx';
+import { useKindFilter } from '../components/EntryFilter.jsx';
+import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
-import FeedForm from '../forms/FeedForm.jsx';
-import PumpForm from '../forms/PumpForm.jsx';
-import DiaperForm from '../forms/DiaperForm.jsx';
-import MedForm from '../forms/MedForm.jsx';
-import MilestoneForm from '../forms/MilestoneForm.jsx';
-import MeasurementForm from '../forms/MeasurementForm.jsx';
-import TemperatureForm from '../forms/TemperatureForm.jsx';
-import BloodPressureForm from '../forms/BloodPressureForm.jsx';
-import SleepForm from '../forms/SleepForm.jsx';
-
-const WetIcon = CONTENT_ICONS.wet;
-const DirtyIcon = CONTENT_ICONS.dirty;
-
-const FORM_BY_KIND = { feed: FeedForm, pump: PumpForm, diaper: DiaperForm, med: MedForm, milestone: MilestoneForm, measurement: MeasurementForm, temperature: TemperatureForm, bp: BloodPressureForm, sleep: SleepForm };
-
-// Kinds a caregiver logs — the filter only offers these in the caregiver view.
-const CAREGIVER_KINDS = ['med', 'temperature', 'bp'];
-
-// The Track page's out-of-the-box card order (sleep leads, then the OPTIONS
-// order) and the localStorage key it persists a user's custom order under. We
-// mirror both so the filter lists kinds in the same order the user sees on Track.
-const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp'];
-const TRACK_ORDER_KEY = 'babytrak.trackOrder';
-
-// Kinds in Track-page order: the user's saved order if any, with any known kinds
-// it's missing appended (and unknown entries dropped) so the list stays complete.
-function trackOrderKinds() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(TRACK_ORDER_KEY) || 'null');
-  } catch {
-    /* ignore malformed storage */
-  }
-  const base = Array.isArray(saved) && saved.every((k) => typeof k === 'string') ? saved : TRACK_DEFAULT_ORDER;
-  return [
-    ...base.filter((k) => TRACK_DEFAULT_ORDER.includes(k)),
-    ...TRACK_DEFAULT_ORDER.filter((k) => !base.includes(k)),
-  ];
-}
-
-// Top-right dropdown that toggles which kinds show in the timeline. The filter is
-// temporary (kept in History's state, never persisted) so it resets on reload.
-function FilterMenu({ kinds, shown, allSelected, active, onToggle, onToggleAll }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
-
-  const FunnelIcon = active ? FunnelFill : Funnel;
-  return (
-    <div className="filter-menu" ref={ref}>
-      <button
-        type="button"
-        className={`filter-btn ${active ? 'active' : ''}`}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <FunnelIcon size={12} /> Filter
-      </button>
-      <div className={`filter-pop ${open ? 'open' : ''}`} role="menu" aria-hidden={!open}>
-        <button type="button" className="filter-all" onClick={onToggleAll}>
-          {allSelected ? 'Deselect all' : 'Select all'}
-        </button>
-        <div className="filter-list">
-          {kinds.map((k) => {
-            const Icon = KIND_ICONS[k];
-            const on = shown.has(k);
-            return (
-              <button
-                key={k}
-                type="button"
-                className={`filter-row ${on ? 'on' : ''}`}
-                role="menuitemcheckbox"
-                aria-checked={on}
-                onClick={() => onToggle(k)}
-              >
-                <span className="icon-tile filter-ico" style={tile(KIND_META[k].color)}>
-                  <Icon size={15} />
-                </span>
-                <span className="filter-label">{KIND_META[k].label}</span>
-                <span className="filter-check">{on && <Check size={16} />}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Title + icon for the edit modal header, per timeline item.
-function editHeader(item) {
-  if (item.kind === 'feed') {
-    return { label: FEED_TYPE_META[item.type].label, color: FEED_TYPE_META[item.type].color, Icon: FEED_TYPE_ICONS[item.type] };
-  }
-  const meta = KIND_META[item.kind];
-  return { label: meta.label, color: meta.color, Icon: KIND_ICONS[item.kind] };
-}
-
-function tile(color) {
-  return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
-}
-
-function describe(item) {
-  if (item.kind === 'feed') {
-    const total = item.left_seconds + item.right_seconds;
-    const milk = item.milk_type === 'formula' ? 'Formula' : 'Breast milk';
-    const nursing = `L ${formatDuration(item.left_seconds)} · R ${formatDuration(item.right_seconds)}`;
-    const bottle = `${item.amount} ${item.unit}`;
-    const bottleDur = item.bottle_seconds ? `${formatDuration(item.bottle_seconds)} · ` : '';
-    if (item.type === 'bottle') {
-      return { title: `Bottle · ${bottle}`, sub: `${bottleDur}${milk}` };
-    }
-    if (item.type === 'both') {
-      return {
-        title: `Combo · ${formatDuration(total)} + ${bottle}`,
-        sub: `${nursing} · ${bottleDur}${bottle} ${milk}`,
-      };
-    }
-    // breast
-    return { title: `Breast feed · ${formatDuration(total)}`, sub: `${nursing} · ${milk}` };
-  }
-  if (item.kind === 'pump') {
-    const vol = item.amount != null ? `${item.amount} ${item.unit}` : 'volume n/a';
-    return {
-      title: `Pump · ${vol}`,
-      sub: item.duration_seconds ? `${formatDuration(item.duration_seconds)} session` : 'Pumping',
-    };
-  }
-  if (item.kind === 'med') {
-    const dose = item.amount != null ? `${item.amount} ${item.unit}` : 'dose n/a';
-    return { title: item.name, sub: `Medication · ${dose}` };
-  }
-  if (item.kind === 'milestone') {
-    return { title: item.name, sub: 'Milestone' };
-  }
-  if (item.kind === 'measurement') {
-    const summary = measurementSummary(item);
-    return { title: summary ?? 'Measurement', sub: 'Measurement' };
-  }
-  if (item.kind === 'temperature') {
-    const method = tempMethodLabel(item.method);
-    return {
-      title: formatTemp(item.temp, item.unit) ?? 'Temperature',
-      sub: method ? `Temperature · ${method}` : 'Temperature',
-    };
-  }
-  if (item.kind === 'bp') {
-    return {
-      title: `${formatBP(item.systolic, item.diastolic) ?? 'Blood pressure'} mmHg`,
-      sub: item.pulse != null ? `Blood pressure · ${item.pulse} bpm` : 'Blood pressure',
-    };
-  }
-  if (item.kind === 'sleep') {
-    if (!item.end_time) return { title: 'Sleep · in progress', sub: `Since ${formatTime(item.start_time)}` };
-    return {
-      title: `Sleep · ${formatMinutes(sleepSeconds(item))}`,
-      sub: `${formatTime(item.start_time)} – ${formatTime(item.end_time)}`,
-    };
-  }
-  // diaper
-  const swatch = stoolColor(item.stool_color);
-  const stoolBits = [stoolAmountLabel(item.stool_amount), stoolTextureLabel(item.stool_texture)].filter(Boolean);
-  return {
-    title: 'Diaper',
-    sub: (
-      <>
-        {item.wet && (
-          <span className="inline-ico">
-            <WetIcon size={13} color="var(--c-wet)" /> Wet
-          </span>
-        )}
-        {item.dirty && (
-          <span className="inline-ico">
-            <DirtyIcon size={12} color="var(--c-dirty)" /> Dirty
-          </span>
-        )}
-        {item.dirty && swatch && (
-          <span className="inline-ico">
-            <span className="stool-dot" style={{ background: swatch.hex }} /> {swatch.label}
-          </span>
-        )}
-        {item.dirty && stoolBits.length > 0 && <span className="inline-ico">{stoolBits.join(' · ')}</span>}
-        {!item.wet && !item.dirty && '—'}
-      </>
-    ),
-  };
-}
 
 // Days within this many days of today show on load; older days stay behind the
 // "Load more" button, revealed OLDER_BATCH days at a time.
@@ -345,13 +144,14 @@ export default function History() {
   const [summary, setSummary] = useState(null); // { day, items } shown in the summary modal
   const [collapsed, setCollapsed] = useState(() => new Set()); // day keys the user collapsed
   const [shownOlder, setShownOlder] = useState(0); // how many >3-day-old days are revealed
-  const [enabledKinds, setEnabledKinds] = useState(null); // Set of kinds shown; null = all shown
   const notify = useToast();
   const { subjectType, selectedId, selectedBaby, selectedCaregiver } = useBaby();
 
   const isCaregiver = subjectType === 'caregiver';
   const caregiverId = selectedCaregiver?.id;
   const subjectName = isCaregiver ? selectedCaregiver?.name : selectedBaby?.name;
+
+  const { shownKinds, filterMenu, reset: resetFilter } = useKindFilter(isCaregiver);
 
   const load = () =>
     (isCaregiver ? api.caregiverTimeline(caregiverId) : api.timeline(selectedId))
@@ -362,7 +162,7 @@ export default function History() {
     setItems(null);
     setShownOlder(0);
     setCollapsed(new Set());
-    setEnabledKinds(null); // the temporary filter resets when the subject changes
+    resetFilter(); // the temporary filter resets when the subject changes
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectType, selectedId, caregiverId]);
@@ -390,34 +190,6 @@ export default function History() {
     setEditing(null);
     load(); // re-pull so the row reflects the change (and re-sorts if time changed)
   };
-
-  // Kinds offered in the filter, in Track-page order (caregivers only log a subset).
-  const filterKinds = trackOrderKinds().filter((k) => !isCaregiver || CAREGIVER_KINDS.includes(k));
-  // null = everything shown; otherwise the explicit set of enabled kinds.
-  const shownKinds = enabledKinds ?? new Set(filterKinds);
-  const allSelected = filterKinds.every((k) => shownKinds.has(k));
-  const filterActive = !allSelected;
-
-  const toggleKind = (kind) =>
-    setEnabledKinds((prev) => {
-      const next = new Set(prev ?? filterKinds);
-      if (next.has(kind)) next.delete(kind);
-      else next.add(kind);
-      return next;
-    });
-
-  const toggleAll = () => setEnabledKinds(allSelected ? new Set() : new Set(filterKinds));
-
-  const filterMenu = (
-    <FilterMenu
-      kinds={filterKinds}
-      shown={shownKinds}
-      allSelected={allSelected}
-      active={filterActive}
-      onToggle={toggleKind}
-      onToggleAll={toggleAll}
-    />
-  );
 
   if (items === null) {
     return <p className="empty">Loading…</p>;

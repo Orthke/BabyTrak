@@ -83,6 +83,7 @@ const OPTIONS = [
     sub: 'Systolic / diastolic, with pulse',
     color: 'var(--c-bp)',
     Form: BloodPressureForm,
+    caregiverOnly: true, // blood pressure is tracked for caregivers, not babies
   },
 ];
 
@@ -132,9 +133,11 @@ function lastSummary(item) {
 const SENSOR_OPTIONS = { activationConstraint: { distance: 8 } };
 
 const OPTION_BY_KIND = Object.fromEntries(OPTIONS.map((o) => [o.kind, o]));
-// The full set of cards, in their out-of-the-box order. Sleep leads; the rest
+// Kinds a baby can track: everything except caregiver-only kinds (blood pressure).
+const BABY_KINDS = OPTIONS.filter((o) => !o.caregiverOnly).map((o) => o.kind);
+// The full set of baby cards, in their out-of-the-box order. Sleep leads; the rest
 // follow the OPTIONS order. The user can reorder them and we persist that.
-const DEFAULT_ORDER = ['sleep', ...OPTIONS.map((o) => o.kind)];
+const DEFAULT_ORDER = ['sleep', ...BABY_KINDS];
 const ORDER_KEY = 'babytrak.trackOrder';
 
 function loadOrder() {
@@ -229,8 +232,11 @@ export default function Track() {
   const isCaregiver = subjectType === 'caregiver';
   const caregiverId = selectedCaregiver?.id;
   const subjectName = isCaregiver ? selectedCaregiver?.name : selectedBaby?.name;
-  // Caregivers track a limited set (medications, temperature).
-  const options = isCaregiver ? OPTIONS.filter((o) => CAREGIVER_KINDS.includes(o.kind)) : OPTIONS;
+  // Caregivers track a limited set (medications, temperature, blood pressure);
+  // babies track everything except the caregiver-only kinds.
+  const options = isCaregiver
+    ? OPTIONS.filter((o) => CAREGIVER_KINDS.includes(o.kind))
+    : OPTIONS.filter((o) => !o.caregiverOnly);
 
   // Card order is user-customizable (drag to reorder) and persisted. Caregivers
   // only see the medication card, so reordering applies to the baby view.

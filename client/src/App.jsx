@@ -3,16 +3,18 @@ import { Routes, Route, NavLink } from 'react-router-dom';
 import Track from './pages/Track.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import History from './pages/History.jsx';
+import Timeline from './pages/Timeline.jsx';
 import BabySelector from './components/BabySelector.jsx';
 import BabyForm from './forms/BabyForm.jsx';
 import { useBaby } from './context/BabyContext.jsx';
 import { useToast } from './components/Toast.jsx';
-import { PlusCircleFill, GraphUp, ClockHistory, CupStraw } from './icons.jsx';
+import { PlusCircleFill, GraphUp, ClockHistory, Calendar3, CupStraw } from './icons.jsx';
 
 function BottomNav() {
   const items = [
     { to: '/', Icon: PlusCircleFill, label: 'Track', end: true },
     { to: '/dashboard', Icon: GraphUp, label: 'Dashboard' },
+    { to: '/timeline', Icon: Calendar3, label: 'Timeline' },
     { to: '/history', Icon: ClockHistory, label: 'History' },
   ];
   return (
@@ -120,6 +122,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Track />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/timeline" element={<Timeline />} />
           <Route path="/history" element={<History />} />
         </Routes>
       </main>

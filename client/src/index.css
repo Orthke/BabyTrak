@@ -1414,6 +1414,169 @@ input[type='datetime-local']::-webkit-datetime-edit {
   color: var(--c-primary);
 }
 
+/* --------------------- timeline (calendar) view --------------------- */
+
+/* The whole calendar scrolls vertically in its own box so the day-of-week
+   header can stick to the top while you scan down through the hours. Height
+   fills what's left under the app header/selector/filter, above the nav. */
+.tl-scroll {
+  height: calc(100dvh - 210px);
+  min-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-card);
+}
+
+/* Sticky day-of-week row. Grid template is shared with .tl-body so the gutter
+   and the five day columns line up exactly. */
+.tl-head,
+.tl-body {
+  display: grid;
+  grid-template-columns: 34px repeat(5, minmax(0, 1fr));
+}
+
+.tl-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--c-card);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.tl-gutter-head {
+  border-right: 1px solid var(--c-border);
+}
+
+.tl-col-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 2px;
+  border-left: 1px solid var(--c-border);
+  text-align: center;
+}
+
+.tl-col-head .tl-dow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-muted);
+}
+
+.tl-col-head .tl-date {
+  font-size: 0.68rem;
+  color: var(--c-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-col-head.today .tl-dow,
+.tl-col-head.today .tl-date {
+  color: var(--c-primary);
+}
+
+/* Hour gutter: labels are absolutely positioned at their hour line. */
+.tl-gutter {
+  position: relative;
+  border-right: 1px solid var(--c-border);
+}
+
+.tl-hour {
+  position: absolute;
+  right: 4px;
+  transform: translateY(-50%);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-muted);
+  white-space: nowrap;
+}
+
+/* A day column. The repeating gradient draws a faint line every hour (48px,
+   matching PX_PER_HOUR in Timeline.jsx). */
+.tl-col {
+  position: relative;
+  border-left: 1px solid var(--c-border);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--c-border) 0,
+    var(--c-border) 1px,
+    transparent 1px,
+    transparent 48px
+  );
+}
+
+.tl-col.today {
+  background-color: color-mix(in srgb, var(--c-primary) 5%, transparent);
+}
+
+/* An event chip, pinned by `top` to its time of day. */
+.tl-event {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.tl-event .tl-ico {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.tl-event .tl-etime {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--c-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tl-event:hover .tl-etime {
+  color: var(--c-text);
+}
+
+/* Sleep spans render as a translucent bar behind the start chip. */
+.tl-sleepbar {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 6px;
+  border-left: 2px solid;
+  opacity: 0.9;
+  z-index: 1;
+}
+
+/* Current-time marker, drawn only on today's column. */
+.tl-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--c-primary);
+  z-index: 3;
+}
+
+.tl-now::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-primary);
+}
+
 /* Day summary modal table. */
 .summary-table {
   width: 100%;

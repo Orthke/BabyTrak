@@ -24,7 +24,7 @@ import {
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
-import { HeartFill, CupStraw, Droplet, DropletHalf, Moisture, GraphUp, Rulers } from '../icons.jsx';
+import { HeartFill, CupStraw, Droplet, DropletHalf, Diaper, GraphUp, Rulers } from '../icons.jsx';
 import CaregiverDashboard from './CaregiverDashboard.jsx';
 
 const COLORS = {
@@ -137,6 +137,12 @@ export default function Dashboard() {
 
 // Today as a local 'YYYY-MM-DD' string (en-CA renders ISO order in local time).
 const todayStr = () => new Date().toLocaleDateString('en-CA');
+// Yesterday in the same local 'YYYY-MM-DD' form.
+const yesterdayStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString('en-CA');
+};
 
 function BabyDashboard() {
   const [days, setDays] = useState(7);
@@ -147,6 +153,8 @@ function BabyDashboard() {
   const { selectedId, selectedBaby } = useBaby();
 
   const isDay = date !== '';
+  const today = todayStr();
+  const yesterday = yesterdayStr();
 
   useEffect(() => {
     setData(null);
@@ -187,6 +195,12 @@ function BabyDashboard() {
           : `${selectedBaby?.name ?? 'Baby'}'s last ${days} days`}
       </p>
       <div className="range-tabs">
+        <button className={date === today ? 'active' : ''} onClick={() => setDate(today)}>
+          Today
+        </button>
+        <button className={date === yesterday ? 'active' : ''} onClick={() => setDate(yesterday)}>
+          Yesterday
+        </button>
         {[7, 14, 30].map((d) => (
           <button
             key={d}
@@ -199,7 +213,10 @@ function BabyDashboard() {
             {d}d
           </button>
         ))}
-        <button className={isDay ? 'active' : ''} onClick={() => setDate((v) => v || todayStr())}>
+        <button
+          className={isDay && date !== today && date !== yesterday ? 'active' : ''}
+          onClick={() => setDate((v) => v || today)}
+        >
           Day
         </button>
       </div>
@@ -215,7 +232,7 @@ function BabyDashboard() {
         <StatCard Icon={DropletHalf} color={COLORS.pump} value={totals.pumpCount} label="Pump sessions" />
         <StatCard Icon={Droplet} color={COLORS.pump} value={`${totals.pumpMl} ml`} label="Pumped total" />
         <StatCard Icon={Droplet} color={COLORS.bottle} value={`${totals.bottleMl} ml`} label="Bottle total" />
-        <StatCard Icon={Moisture} color={COLORS.diaper} value={totals.diaperCount} label="Diapers" />
+        <StatCard Icon={Diaper} color={COLORS.diaper} value={totals.diaperCount} label="Diapers" />
       </div>
 
       {hasGrowth && (
