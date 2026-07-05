@@ -41,6 +41,25 @@ function sumVolumes(items) {
   return acc;
 }
 
+// Per-unit average volume, in the same { ml, oz } shape formatVolume expects.
+// Each unit averages only over the entries that use it, so a day mixing units
+// still reads sensibly (e.g. "120 ml" ml-entries and "4 oz" oz-entries average
+// independently rather than being blended).
+function avgVolumes(items) {
+  const sum = { ml: 0, oz: 0 };
+  const count = { ml: 0, oz: 0 };
+  for (const it of items) {
+    if (it.amount != null && (it.unit === 'ml' || it.unit === 'oz')) {
+      sum[it.unit] += it.amount;
+      count[it.unit] += 1;
+    }
+  }
+  return {
+    ml: count.ml ? sum.ml / count.ml : 0,
+    oz: count.oz ? sum.oz / count.oz : 0,
+  };
+}
+
 const ML_PER_OZ = 29.5735;
 
 function formatVolume(acc) {
@@ -67,7 +86,9 @@ function buildSummary(dayItems) {
   return {
     feedCount: feeds.length,
     bottleVol: formatVolume(sumVolumes(bottleFeeds)),
+    avgBottleVol: formatVolume(avgVolumes(bottleFeeds)),
     pumpVol: formatVolume(sumVolumes(pumps)),
+    avgPumpVol: formatVolume(avgVolumes(pumps)),
     wet: diapers.filter((d) => d.wet).length,
     dirty: diapers.filter((d) => d.dirty).length,
     sleepSec,
@@ -93,8 +114,16 @@ function DaySummary({ items }) {
           <td>{s.bottleVol}</td>
         </tr>
         <tr>
+          <td>Avg feed volume</td>
+          <td>{s.avgBottleVol}</td>
+        </tr>
+        <tr>
           <td>Pumped volume</td>
           <td>{s.pumpVol}</td>
+        </tr>
+        <tr>
+          <td>Avg pump volume</td>
+          <td>{s.avgPumpVol}</td>
         </tr>
 
         <tr className="summary-group">
