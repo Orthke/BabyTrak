@@ -90,7 +90,7 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
               <div className="track-last-value" style={{ color: COLOR }}>
                 {formatMinutes(sleepSeconds(sleep))}
               </div>
-              <div className="track-last-time">{timeAgo(sleep.start_time)}</div>
+              <div className="track-last-time">{timeAgo(sleep.end_time ?? sleep.start_time)}</div>
             </>
           ) : (
             <div className="track-last-empty">None yet</div>

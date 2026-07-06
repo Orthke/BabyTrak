@@ -76,7 +76,9 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
   };
 
   const totalSeconds = sides.left + sides.right;
-  const breastOk = !hasBreast || totalSeconds > 0;
+  // A breast feed can be logged with zero time (an attempt to nurse that didn't
+  // take); it shows as "Attempted to feed". Bottle still needs an amount.
+  const breastOk = true;
   const bottleOk = !hasBottle || (amount !== '' && Number(amount) > 0);
   const valid = breastOk && bottleOk;
 

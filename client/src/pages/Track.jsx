@@ -110,7 +110,8 @@ function lastSummary(item) {
     case 'feed': {
       if (item.amount != null) return `${item.amount} ${item.unit}`;
       const secs = (item.left_seconds || 0) + (item.right_seconds || 0);
-      return secs ? formatMinutes(secs) : null;
+      // A breast feed with no time logged is an attempt that didn't take.
+      return secs ? formatMinutes(secs) : 'Attempted to feed';
     }
     case 'pump':
       return item.amount != null ? `${item.amount} ${item.unit}` : null;

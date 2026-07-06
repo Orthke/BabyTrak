@@ -73,6 +73,7 @@ export function describe(item) {
       };
     }
     // breast
+    if (total === 0) return { title: 'Attempted to feed', sub: milk };
     return { title: `Breast feed · ${formatDuration(total)}`, sub: `${nursing} · ${milk}` };
   }
   if (item.kind === 'pump') {
