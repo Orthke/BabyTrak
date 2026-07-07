@@ -142,4 +142,5 @@ export {
   FunnelFill,
   Eye,
   EyeSlash,
+  CalendarRange,
 } from 'react-bootstrap-icons';

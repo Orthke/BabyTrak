@@ -21,6 +21,8 @@ import {
   heightValue,
   weightUnitLabel,
   weightPctFromBirth,
+  todayStr,
+  yesterdayStr,
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
@@ -135,15 +137,6 @@ export default function Dashboard() {
   return <BabyDashboard />;
 }
 
-// Today as a local 'YYYY-MM-DD' string (en-CA renders ISO order in local time).
-const todayStr = () => new Date().toLocaleDateString('en-CA');
-// Yesterday in the same local 'YYYY-MM-DD' form.
-const yesterdayStr = () => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString('en-CA');
-};
-
 function BabyDashboard() {
   const [days, setDays] = useState(7);
   const [date, setDate] = useState(''); // '' = rolling range; 'YYYY-MM-DD' = single day
@@ -178,7 +171,7 @@ function BabyDashboard() {
   const hasSideData = totals.leftMinutes + totals.rightMinutes > 0;
   const hasBreastMinutes = totals.breastMinutes > 0;
 
-  const hasData = totals.breastCount + totals.bottleCount + totals.diaperCount > 0;
+  const hasData = totals.breastCount + totals.bottleCount + totals.diaperCount + totals.pumpCount > 0;
 
   const wUnit = selectedBaby?.weight_unit ?? 'lb_oz';
   const hUnit = selectedBaby?.height_unit ?? 'in';

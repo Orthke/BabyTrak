@@ -1015,45 +1015,79 @@ router.get('/caregiver-timeline', (req, res) => {
 
 router.get('/caregiver-stats', (req, res) => {
   const caregiver = caregiverScope(req);
-  const days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
-  const since = new Date();
-  since.setDate(since.getDate() - (days - 1));
-  since.setHours(0, 0, 0, 0);
-  const sinceIso = since.toISOString();
 
-  const empty = { days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [] };
+  // Two modes: a rolling range (?days=) or a single calendar day (?date=YYYY-MM-DD).
+  // A specific day takes precedence when given, mirroring /stats.
+  const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
+  const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
+
+  let days, since;
+  if (singleDay) {
+    days = 1;
+    since = new Date(`${dateParam}T00:00:00`);
+  } else {
+    days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
+    since = new Date();
+    since.setDate(since.getDate() - (days - 1));
+    since.setHours(0, 0, 0, 0);
+  }
+  const until = new Date(since);
+  until.setDate(since.getDate() + days);
+  const sinceIso = since.toISOString();
+  const untilIso = until.toISOString();
+
+  const empty = { days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [], medSeries: [] };
   if (!caregiver) return ok(res, empty);
 
-  const doses = db.prepare('SELECT * FROM med_doses WHERE caregiver_id = ? AND time >= ?').all(caregiver, sinceIso);
+  const doses = db
+    .prepare('SELECT * FROM med_doses WHERE caregiver_id = ? AND time >= ? AND time < ?')
+    .all(caregiver, sinceIso, untilIso);
 
   const dayKey = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const byMed = {};
+  for (const r of doses) {
+    byMed[r.name] = (byMed[r.name] || 0) + 1;
+  }
+  const byMedList = Object.entries(byMed)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Stack the daily chart by medication, capping direct series to keep the
+  // legend readable — anything past the cap folds into a single "Other" series.
+  const MAX_SERIES = 8;
+  const seriesNames = byMedList.slice(0, MAX_SERIES).map((m) => m.name);
+  const hasOther = byMedList.length > MAX_SERIES;
 
   const buckets = {};
   for (let i = 0; i < days; i++) {
     const d = new Date(since);
     d.setDate(since.getDate() + i);
-    buckets[dayKey(d)] = {
+    const bucket = {
       date: dayKey(d),
       label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       doseCount: 0,
     };
+    for (const name of seriesNames) bucket[name] = 0;
+    if (hasOther) bucket.Other = 0;
+    buckets[dayKey(d)] = bucket;
   }
 
-  const byMed = {};
   for (const r of doses) {
     const k = dayKey(new Date(r.time));
-    if (buckets[k]) buckets[k].doseCount += 1;
-    byMed[r.name] = (byMed[r.name] || 0) + 1;
+    const bucket = buckets[k];
+    if (!bucket) continue;
+    bucket.doseCount += 1;
+    if (seriesNames.includes(r.name)) bucket[r.name] += 1;
+    else if (hasOther) bucket.Other += 1;
   }
 
   const daily = Object.values(buckets);
-  const totals = { doseCount: doses.length, medCount: Object.keys(byMed).length };
-  const byMedList = Object.entries(byMed)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
+  const totals = { doseCount: doses.length, medCount: byMedList.length };
+  const medSeries = hasOther ? [...seriesNames, 'Other'] : seriesNames;
 
-  ok(res, { days, daily, totals, byMed: byMedList });
+  ok(res, { days, daily, totals, byMed: byMedList, medSeries });
 });
 
 export default router;

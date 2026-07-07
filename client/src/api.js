@@ -150,7 +150,8 @@ export const api = {
   stats: (babyId, days = 14, date = null) =>
     request(`/stats?babyId=${babyId ?? ''}&days=${days}${date ? `&date=${date}` : ''}`),
   caregiverTimeline: (caregiverId) => request(`/caregiver-timeline${qc(caregiverId)}`),
-  caregiverStats: (caregiverId, days = 14) => request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}`),
+  caregiverStats: (caregiverId, days = 14, date = null) =>
+    request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}${date ? `&date=${date}` : ''}`),
 };
 
 // Generic delete by kind (used by the timeline view).

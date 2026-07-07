@@ -3,7 +3,7 @@ import BreastTimer from '../components/BreastTimer.jsx';
 import DurationTimer from '../components/DurationTimer.jsx';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { api } from '../api.js';
-import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration } from '../utils.js';
+import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration, convertVolume } from '../utils.js';
 import { Stopwatch, Pencil } from '../icons.jsx';
 import { FEED_TYPE_ICONS } from '../icons.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
@@ -73,6 +73,16 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
 
   const setBottleManualMinutes = (minutes) => {
     setBottleSeconds(Math.round(Math.max(0, Number(minutes) || 0) * 60));
+  };
+
+  // Switching ml/oz converts whatever amount is already entered instead of
+  // just relabeling it.
+  const switchUnit = (next) => {
+    if (next === unit) return;
+    if (amount !== '' && Number.isFinite(Number(amount))) {
+      setAmount(String(convertVolume(Number(amount), unit, next)));
+    }
+    setUnit(next);
   };
 
   const totalSeconds = sides.left + sides.right;
@@ -251,10 +261,10 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
                 style={{ flex: 2 }}
               />
               <div className="segmented" style={{ flex: 1 }}>
-                <button type="button" className={unit === 'ml' ? 'active' : ''} onClick={() => setUnit('ml')}>
+                <button type="button" className={unit === 'ml' ? 'active' : ''} onClick={() => switchUnit('ml')}>
                   ml
                 </button>
-                <button type="button" className={unit === 'oz' ? 'active' : ''} onClick={() => setUnit('oz')}>
+                <button type="button" className={unit === 'oz' ? 'active' : ''} onClick={() => switchUnit('oz')}>
                   oz
                 </button>
               </div>

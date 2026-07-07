@@ -8,10 +8,11 @@ import {
   KIND_META,
   FEED_TYPE_META,
   tile,
+  ML_PER_OZ,
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
-import { KIND_ICONS, FEED_TYPE_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown } from '../icons.jsx';
+import { KIND_ICONS, FEED_TYPE_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown, CalendarRange } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
 import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
@@ -30,44 +31,50 @@ function daysAgo(when) {
   return Math.round((today - a) / 86400000);
 }
 
-// Volumes (pump / bottle) are entered in ml or oz; we keep the two units
-// separate rather than guess a conversion, so the total reads "120 ml + 4 oz"
-// when a day mixes them.
-function sumVolumes(items) {
-  const acc = { ml: 0, oz: 0 };
-  for (const it of items) {
-    if (it.amount != null && (it.unit === 'ml' || it.unit === 'oz')) acc[it.unit] += it.amount;
-  }
-  return acc;
+// ISO -> local 'YYYY-MM-DD', so a range picker's date-input values can be
+// compared against it lexically.
+const dayKeyLocal = (iso) => new Date(iso).toLocaleDateString('en-CA');
+const todayKeyLocal = () => new Date().toLocaleDateString('en-CA');
+// `days` back from today, as the same 'YYYY-MM-DD' form.
+function daysAgoKeyLocal(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toLocaleDateString('en-CA');
 }
 
-// Per-unit average volume, in the same { ml, oz } shape formatVolume expects.
-// Each unit averages only over the entries that use it, so a day mixing units
-// still reads sensibly (e.g. "120 ml" ml-entries and "4 oz" oz-entries average
-// independently rather than being blended).
+// Volumes (pump / bottle) are entered in ml or oz; convert everything to ml
+// so a day mixing units still totals to a single figure.
+function toMl(it) {
+  if (it.amount == null) return null;
+  if (it.unit === 'ml') return it.amount;
+  if (it.unit === 'oz') return it.amount * ML_PER_OZ;
+  return null;
+}
+
+function sumVolumes(items) {
+  return items.reduce((s, it) => {
+    const ml = toMl(it);
+    return ml != null ? s + ml : s;
+  }, 0);
+}
+
 function avgVolumes(items) {
-  const sum = { ml: 0, oz: 0 };
-  const count = { ml: 0, oz: 0 };
+  let sum = 0;
+  let count = 0;
   for (const it of items) {
-    if (it.amount != null && (it.unit === 'ml' || it.unit === 'oz')) {
-      sum[it.unit] += it.amount;
-      count[it.unit] += 1;
+    const ml = toMl(it);
+    if (ml != null) {
+      sum += ml;
+      count += 1;
     }
   }
-  return {
-    ml: count.ml ? sum.ml / count.ml : 0,
-    oz: count.oz ? sum.oz / count.oz : 0,
-  };
+  return count ? sum / count : 0;
 }
 
-const ML_PER_OZ = 29.5735;
-
-function formatVolume(acc) {
-  const parts = [];
-  // ml amounts get a fluid-ounce conversion in parentheses, e.g. "30 ml (1 oz)".
-  if (acc.ml) parts.push(`${+acc.ml.toFixed(1)} ml (${+(acc.ml / ML_PER_OZ).toFixed(1)} oz)`);
-  if (acc.oz) parts.push(`${+acc.oz.toFixed(1)} oz`);
-  return parts.length ? parts.join(' + ') : '—';
+// Renders a total in ml, e.g. "220 ml (7.4 oz)".
+function formatVolume(ml) {
+  if (!ml) return '—';
+  return `${+ml.toFixed(1)} ml (${+(ml / ML_PER_OZ).toFixed(1)} oz)`;
 }
 
 // Roll a day's timeline entries into the totals shown in the summary modal.
@@ -167,10 +174,40 @@ function DaySummary({ items }) {
   );
 }
 
+// Date-range picker plus the same summary table, totalled over every item
+// whose day falls between the two picked dates (inclusive).
+function RangeSummary({ items }) {
+  const today = todayKeyLocal();
+  const [start, setStart] = useState(() => daysAgoKeyLocal(6));
+  const [end, setEnd] = useState(today);
+
+  const inRange = items.filter((it) => {
+    const key = dayKeyLocal(it.when);
+    return key >= start && key <= end;
+  });
+
+  return (
+    <div>
+      <div className="range-fields">
+        <label>
+          From
+          <input type="date" value={start} max={end} onChange={(e) => setStart(e.target.value)} />
+        </label>
+        <label>
+          To
+          <input type="date" value={end} min={start} max={today} onChange={(e) => setEnd(e.target.value)} />
+        </label>
+      </div>
+      {inRange.length === 0 ? <p className="empty">No entries in this range.</p> : <DaySummary items={inRange} />}
+    </div>
+  );
+}
+
 export default function History() {
   const [items, setItems] = useState(null);
   const [editing, setEditing] = useState(null); // timeline item being edited
   const [summary, setSummary] = useState(null); // { day, items } shown in the summary modal
+  const [rangeOpen, setRangeOpen] = useState(false); // range-summary modal open?
   const [collapsed, setCollapsed] = useState(() => new Set()); // day keys the user collapsed
   const [shownOlder, setShownOlder] = useState(0); // how many >3-day-old days are revealed
   const notify = useToast();
@@ -251,7 +288,14 @@ export default function History() {
 
   return (
     <div>
-      <div className="history-head">{filterMenu}</div>
+      <div className="history-head">
+        {!isCaregiver && (
+          <button type="button" className="filter-btn" onClick={() => setRangeOpen(true)}>
+            <CalendarRange size={12} /> Select range
+          </button>
+        )}
+        {filterMenu}
+      </div>
 
       {filteredItems.length === 0 && (
         <p className="empty">No entries match the current filter.</p>
@@ -345,6 +389,16 @@ export default function History() {
           onClose={() => setSummary(null)}
         >
           <DaySummary items={summary.items} />
+        </Modal>
+      )}
+
+      {rangeOpen && (
+        <Modal
+          title="Range summary"
+          icon={<CalendarRange size={18} color="var(--c-primary)" />}
+          onClose={() => setRangeOpen(false)}
+        >
+          <RangeSummary items={filteredItems} />
         </Modal>
       )}
 

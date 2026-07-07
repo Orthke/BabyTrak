@@ -42,7 +42,7 @@
   /* Height of the fixed bottom nav (icon + label + padding + border), plus the
      iOS safe-area inset. Pages that fill the screen (the timeline) pad by this
      so their content stops exactly at the nav's top edge. */
-  --nav-h: calc(72px + var(--safe-bottom));
+  --nav-h: calc(64px + var(--safe-bottom));
 }
 
 :root[data-theme='girl'] {
@@ -287,7 +287,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 2px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--c-border);
 }
 
@@ -324,7 +324,7 @@ svg {
   right: 0;
   display: flex;
   justify-content: center;
-  padding: 8px 12px calc(8px + var(--safe-bottom));
+  padding: 6px 12px calc(6px + var(--safe-bottom));
   background: var(--c-card);
   border-top: 1px solid var(--c-border);
   z-index: 50;
@@ -345,7 +345,7 @@ svg {
   align-items: center;
   gap: 3px;
   margin: 0 4px;
-  padding: 8px 0;
+  padding: 6px 0;
   border: none;
   background: none;
   color: var(--c-muted);
@@ -1037,7 +1037,8 @@ input[type='datetime-local']::-webkit-datetime-edit {
   width: 100%;
   max-width: 560px;
   border-radius: 20px 20px 0 0;
-  max-height: 92vh;
+  max-height: 92vh; /* fallback for browsers without dvh support */
+  max-height: 92dvh; /* tracks the actual visible viewport as iOS Safari's chrome shows/hides */
   display: flex;
   flex-direction: column;
   overflow: hidden; /* clip to rounded corners; the content area scrolls instead */
@@ -1339,6 +1340,8 @@ input[type='datetime-local']::-webkit-datetime-edit {
 .history-head {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin: 0 2px 6px;
 }
 
@@ -1869,6 +1872,38 @@ input[type='datetime-local']::-webkit-datetime-edit {
   font-weight: 600;
   font-size: 0.85rem;
   font-family: inherit;
+}
+
+/* Start/end date inputs at the top of the History "Select range" modal. */
+.range-fields {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.range-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.range-fields input {
+  padding: 7px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-card);
+  color: var(--c-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* --------------------------- misc ------------------------------- */

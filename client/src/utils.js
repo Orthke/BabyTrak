@@ -4,6 +4,17 @@ export function pad(n) {
   return String(n).padStart(2, '0');
 }
 
+export const ML_PER_OZ = 29.5735;
+
+// Re-express a volume in the other unit (rounded to 1 decimal), e.g.
+// convertVolume(60, 'ml', 'oz') -> 2. Same-unit calls are a no-op.
+export function convertVolume(amount, fromUnit, toUnit) {
+  if (fromUnit === toUnit) return amount;
+  const ml = fromUnit === 'oz' ? amount * ML_PER_OZ : amount;
+  const converted = toUnit === 'oz' ? ml / ML_PER_OZ : ml;
+  return Math.round(converted * 10) / 10;
+}
+
 // seconds -> "mm:ss" or "h:mm:ss"
 export function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -25,6 +36,15 @@ export function formatMinutes(totalSeconds) {
 export function formatTime(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
+
+// Today as a local 'YYYY-MM-DD' string (en-CA renders ISO order in local time).
+export const todayStr = () => new Date().toLocaleDateString('en-CA');
+// Yesterday in the same local 'YYYY-MM-DD' form.
+export const yesterdayStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString('en-CA');
+};
 
 // ISO -> "Mon, Jun 28"
 export function formatDate(iso) {
