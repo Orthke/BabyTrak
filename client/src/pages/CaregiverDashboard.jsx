@@ -60,7 +60,7 @@ export default function CaregiverDashboard({ caregiver }) {
 
   if (!data) return <p className="empty">Loading…</p>;
 
-  const { daily, totals, byMed, medSeries } = data;
+  const { daily = [], totals = { doseCount: 0, medCount: 0 }, byMed = [], medSeries = [] } = data;
   const hasData = totals.doseCount > 0;
 
   return (

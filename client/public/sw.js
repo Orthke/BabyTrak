@@ -1,7 +1,7 @@
 // BabyTrak service worker.
 // - App shell (HTML/JS/CSS/icons) is cached so the app opens offline.
 // - API requests always go to the network so data is never stale or stored.
-const CACHE = 'babytrak-v1';
+const CACHE = 'babytrak-v2';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.png', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
