@@ -13,6 +13,7 @@ import {
   stoolTextureLabel,
   stoolColor,
   measurementSummary,
+  formatVolume,
   formatTemp,
   tempMethodLabel,
   formatBP,
@@ -56,12 +57,15 @@ export function editHeader(item) {
   return { label: meta.label, color: meta.color, Icon: KIND_ICONS[item.kind] };
 }
 
-export function describe(item) {
+// `unitPrefs` is the app-wide display-unit preference ({ weightUnit, volumeUnit }
+// from SettingsContext). Falls back to the entry's own stored unit when omitted.
+export function describe(item, unitPrefs = {}) {
+  const volumeUnit = unitPrefs.volumeUnit ?? item.unit;
   if (item.kind === 'feed') {
     const total = item.left_seconds + item.right_seconds;
     const milk = item.milk_type === 'formula' ? 'Formula' : 'Breast milk';
     const nursing = `L ${formatDuration(item.left_seconds)} · R ${formatDuration(item.right_seconds)}`;
-    const bottle = `${item.amount} ${item.unit}`;
+    const bottle = formatVolume(item.amount, item.unit, volumeUnit) ?? '';
     const bottleDur = item.bottle_seconds ? `${formatDuration(item.bottle_seconds)} · ` : '';
     if (item.type === 'bottle') {
       return { title: `Bottle · ${bottle}`, sub: `${bottleDur}${milk}` };
@@ -77,7 +81,7 @@ export function describe(item) {
     return { title: `Breast feed · ${formatDuration(total)}`, sub: `${nursing} · ${milk}` };
   }
   if (item.kind === 'pump') {
-    const vol = item.amount != null ? `${item.amount} ${item.unit}` : 'volume n/a';
+    const vol = formatVolume(item.amount, item.unit, volumeUnit) ?? 'volume n/a';
     return {
       title: `Pump · ${vol}`,
       sub: item.duration_seconds ? `${formatDuration(item.duration_seconds)} session` : 'Pumping',
@@ -91,7 +95,7 @@ export function describe(item) {
     return { title: item.name, sub: 'Milestone' };
   }
   if (item.kind === 'measurement') {
-    const summary = measurementSummary(item);
+    const summary = measurementSummary(item, unitPrefs.weightUnit ?? item.weight_unit, item.height_unit);
     return { title: summary ?? 'Measurement', sub: 'Measurement' };
   }
   if (item.kind === 'temperature') {

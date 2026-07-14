@@ -1,10 +1,12 @@
 :root {
-  /* Surfaces & text (constant across themes) */
+  /* Surfaces & text (light-mode defaults; overridden by [data-color-scheme='dark']) */
   --c-card: #ffffff;
   --c-text: #1f2533;
   --c-muted: #6b7280;
 
-  /* Category colors (constant — they encode data, not theme) */
+  /* Category colors (light-mode defaults; brightened for dark mode below —
+     they still encode data, but readability against a dark surface needs a
+     lighter shade of the same hue) */
   --c-breast: #d6457f;
   --c-bottle: #2f9e94;
   --c-both: #5a8f93;
@@ -33,6 +35,16 @@
   --c-bg: #f4f5f9;
   --c-border: #e6e8f0;
 
+  /* Solid button/tab fills always pair with white text, so they stay at the
+     original (unbrightened) primary hue even in dark mode — only the
+     text/icon role (--c-primary itself) gets brightened for dark-bg contrast. */
+  --c-primary-fill: var(--c-primary);
+  --c-danger: #c0392b;
+  /* The floating toast is an inverted chip (dark bubble, light text) that stays
+     legible regardless of the app theme, so it isn't tied to --c-text/--c-card. */
+  --c-toast-bg: #20232e;
+  --c-toast-text: #ffffff;
+
   --radius: 14px;
   --radius-sm: 10px;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
@@ -59,6 +71,88 @@
   --c-primary-soft: #eaf2fb;
   --c-bg: #f3f7fc;
   --c-border: #dbe7f4;
+}
+
+/* ============================== dark mode ============================= */
+/* Every value below was chosen (and computationally checked) to keep at least
+   a 4.5:1 contrast ratio against the dark card surface it's typically read
+   against — the same bar the light theme's text meets against its white
+   card. Category colors keep their light-mode hue, just lightened enough to
+   stay legible on a dark background. */
+
+:root[data-color-scheme='dark'] {
+  --c-card: #1c1f2a;
+  --c-bg: #12141a;
+  --c-border: #2c3040;
+  --c-text: #e9ebf2;
+  --c-muted: #9aa3ba;
+
+  --c-primary: #7986b2;
+  /* --c-primary-fill stays the original (unbrightened) hue — it's always paired
+     with white text, so it doesn't need the dark-bg brightening --c-primary
+     gets. --c-primary-dark (the :active pressed shade) is left to inherit the
+     light theme's value below for the same reason: it's darker than the fill
+     and already passes white-text contrast comfortably as-is. */
+  --c-primary-fill: #4f5d8a;
+  --c-primary-soft: color-mix(in srgb, var(--c-primary) 16%, var(--c-card));
+  --c-danger: #da6559;
+  --c-toast-bg: #363c52;
+  --c-toast-text: #f4f5f9;
+
+  --c-breast: #db5a8d;
+  --c-girl: #db5a8d;
+  --c-pump: #9d73dc;
+  --c-sleep: #7e85c7;
+  --c-temp: #dc5f5c;
+  --c-bp: #d55f96;
+  --c-sugar: #9f72e6;
+  --c-wet: #4b8cc9;
+  --c-dirty: #af7c59;
+  --c-formula: #867fcd;
+  --c-boy: #4d8bd4;
+  --c-neutral: #7986b2;
+  /* --c-bottle / --c-both / --c-diaper / --c-med / --c-milestone / --c-measure
+     already clear 4.5:1 against the dark card as-is — no override needed. */
+
+  color-scheme: dark;
+}
+
+:root[data-color-scheme='dark'][data-theme='girl'] {
+  --c-primary: #db5a8d;
+  --c-primary-fill: #d6457f;
+  --c-primary-soft: color-mix(in srgb, var(--c-primary) 16%, var(--c-card));
+  --c-bg: color-mix(in srgb, var(--c-girl) 8%, #12141a);
+  --c-border: color-mix(in srgb, var(--c-girl) 16%, #2c3040);
+}
+
+:root[data-color-scheme='dark'][data-theme='boy'] {
+  --c-primary: #4d8bd4;
+  --c-primary-fill: #2f73c4;
+  --c-primary-soft: color-mix(in srgb, var(--c-primary) 16%, var(--c-card));
+  --c-bg: color-mix(in srgb, var(--c-boy) 8%, #12141a);
+  --c-border: color-mix(in srgb, var(--c-boy) 16%, #2c3040);
+}
+
+/* Dark surfaces for the categorical per-medication chart series (caregiver
+   dashboard) — same brightening treatment as the category colors above. */
+:root {
+  --c-med-series-1: #2a78d6;
+  --c-med-series-2: #1baf7a;
+  --c-med-series-3: #eda100;
+  --c-med-series-4: #008300;
+  --c-med-series-5: #4a3aa7;
+  --c-med-series-6: #e34948;
+  --c-med-series-7: #e87ba4;
+  --c-med-series-8: #eb6834;
+  --c-med-other: #898781;
+}
+
+:root[data-color-scheme='dark'] {
+  --c-med-series-1: #488bdc;
+  --c-med-series-4: #009d00;
+  --c-med-series-5: #8b7fd2;
+  --c-med-series-6: #e65b5a;
+  /* series 2/3/7/8 and "other" already clear 4.5:1 against the dark card. */
 }
 
 * {
@@ -582,7 +676,7 @@ svg {
 /* Active nap: a live-running card with a ticking elapsed time + stop button. */
 .sleep-card.active {
   border-color: var(--c-sleep);
-  background: color-mix(in srgb, var(--c-sleep) 6%, white);
+  background: color-mix(in srgb, var(--c-sleep) 6%, var(--c-card));
 }
 
 .sleep-elapsed {
@@ -600,7 +694,11 @@ svg {
   padding: 6px 12px;
   border: none;
   border-radius: 999px;
-  background: var(--c-sleep);
+  /* A straight var(--c-sleep) fill would be too light for white text once dark
+     mode brightens that color for its usual (text-on-dark-card) role, so darken
+     it back down a notch here specifically for the solid-fill-with-white-text
+     case. Harmless in light mode too — it was already high-contrast there. */
+  background: color-mix(in srgb, var(--c-sleep) 80%, black);
   color: #fff;
   font-weight: 700;
   font-size: 0.82rem;
@@ -632,6 +730,7 @@ input[type='text'],
 input[type='number'],
 input[type='date'],
 input[type='datetime-local'],
+input[type='time'],
 textarea {
   width: 100%;
   padding: 11px 13px;
@@ -639,7 +738,7 @@ textarea {
   border-radius: var(--radius-sm);
   font-size: 1rem;
   font-family: inherit;
-  background: #fff;
+  background: var(--c-card);
   color: var(--c-text);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -660,7 +759,7 @@ textarea:focus,
   border-radius: var(--radius-sm);
   font-size: 1rem;
   font-family: inherit;
-  background-color: #fff;
+  background-color: var(--c-card);
   color: var(--c-text);
   -webkit-appearance: none;
   appearance: none;
@@ -706,7 +805,8 @@ textarea {
 
 /* Native date/time fields — normalized to match the other inputs */
 input[type='date'],
-input[type='datetime-local'] {
+input[type='datetime-local'],
+input[type='time'] {
   -webkit-appearance: none;
   appearance: none;
   min-height: 46px;
@@ -714,8 +814,18 @@ input[type='datetime-local'] {
   accent-color: var(--c-primary);
 }
 
+/* Native date/time picker chrome (the calendar/clock popup) is drawn by the
+   browser using this color-scheme hint — flip it so it doesn't render a
+   light popup on top of the dark app. */
+:root[data-color-scheme='dark'] input[type='date'],
+:root[data-color-scheme='dark'] input[type='datetime-local'],
+:root[data-color-scheme='dark'] input[type='time'] {
+  color-scheme: dark;
+}
+
 input[type='date']::-webkit-calendar-picker-indicator,
-input[type='datetime-local']::-webkit-calendar-picker-indicator {
+input[type='datetime-local']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.5;
   padding: 2px;
@@ -723,13 +833,15 @@ input[type='datetime-local']::-webkit-calendar-picker-indicator {
 }
 
 input[type='date']::-webkit-calendar-picker-indicator:hover,
-input[type='datetime-local']::-webkit-calendar-picker-indicator:hover {
+input[type='datetime-local']::-webkit-calendar-picker-indicator:hover,
+input[type='time']::-webkit-calendar-picker-indicator:hover {
   opacity: 0.9;
   background: var(--c-primary-soft);
 }
 
 input[type='date']::-webkit-datetime-edit,
-input[type='datetime-local']::-webkit-datetime-edit {
+input[type='datetime-local']::-webkit-datetime-edit,
+input[type='time']::-webkit-datetime-edit {
   color: var(--c-text);
 }
 
@@ -841,7 +953,7 @@ input[type='datetime-local']::-webkit-datetime-edit {
   padding: 16px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--c-card);
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--c-muted);
@@ -918,7 +1030,7 @@ input[type='datetime-local']::-webkit-datetime-edit {
 }
 
 .btn-primary {
-  background: var(--c-primary);
+  background: var(--c-primary-fill);
   color: white;
 }
 
@@ -943,7 +1055,7 @@ input[type='datetime-local']::-webkit-datetime-edit {
 
 .btn-danger {
   background: transparent;
-  color: #c0392b;
+  color: var(--c-danger);
 }
 
 .btn:disabled {
@@ -972,13 +1084,13 @@ input[type='datetime-local']::-webkit-datetime-edit {
   border-radius: var(--radius);
   padding: 14px 12px;
   text-align: center;
-  background: #fff;
+  background: var(--c-card);
   transition: border-color 0.15s;
 }
 
 .timer-card.running {
   border-color: var(--accent, var(--c-breast));
-  background: color-mix(in srgb, var(--accent, var(--c-breast)) 7%, white);
+  background: color-mix(in srgb, var(--accent, var(--c-breast)) 7%, var(--c-card));
 }
 
 .timer-card .side-label {
@@ -1005,7 +1117,10 @@ input[type='datetime-local']::-webkit-datetime-edit {
   font-weight: 600;
   font-size: 0.88rem;
   cursor: pointer;
-  background: var(--accent, var(--c-breast));
+  /* Darkened the same way as .btn-stop-nap: keeps white text legible whether
+     the accent is a dark-mode-brightened kind color or the plain light-mode
+     one (and improves the pre-existing borderline bottle/breast cases too). */
+  background: color-mix(in srgb, var(--accent, var(--c-breast)) 80%, black);
   color: white;
   display: flex;
   align-items: center;
@@ -1153,6 +1268,10 @@ input[type='datetime-local']::-webkit-datetime-edit {
   margin-bottom: 8px;
 }
 
+/* Deliberately not var(--c-danger) — this is the solid-fill-with-white-text
+   role, which already has plenty of contrast at this exact shade in both
+   themes, so it stays constant rather than picking up dark mode's brightened
+   (text-on-dark-card) variant. */
 .btn-danger-solid {
   background: #c0392b;
   color: #fff;
@@ -1249,6 +1368,10 @@ input[type='datetime-local']::-webkit-datetime-edit {
   display: inline-block;
 }
 
+:root[data-color-scheme='dark'] .stool-dot {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .del-btn {
   border: none;
   background: none;
@@ -1261,7 +1384,7 @@ input[type='datetime-local']::-webkit-datetime-edit {
 }
 
 .del-btn:active {
-  color: #c0392b;
+  color: var(--c-danger);
 }
 
 /* Day header acts as a collapse toggle; it inherits the .section-title look. */
@@ -1854,9 +1977,9 @@ input[type='datetime-local']::-webkit-datetime-edit {
 }
 
 .range-tabs button.active {
-  background: var(--c-primary);
+  background: var(--c-primary-fill);
   color: white;
-  border-color: var(--c-primary);
+  border-color: var(--c-primary-fill);
 }
 
 .day-picker {
@@ -1924,8 +2047,9 @@ input[type='datetime-local']::-webkit-datetime-edit {
   bottom: calc(100px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
-  background: var(--c-text);
-  color: white;
+  background: var(--c-toast-bg);
+  color: var(--c-toast-text);
+  border: 1px solid var(--c-border);
   padding: 11px 20px;
   border-radius: 10px;
   font-weight: 600;

@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { GENDER_ICONS } from '../icons.jsx';
 import { gramsFromLbOz, gramsToLbOz, gramsFromUnit, cmFromUnit, inFromCm } from '../utils.js';
 import { useDirty } from '../components/Modal.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 
 // --- small inline input with a unit suffix ---
 function SuffixInput({ value, onChange, suffix, placeholder, step = '0.1' }) {
@@ -49,12 +50,13 @@ function heightToInput(cm, unit) {
 
 export default function BabyForm({ baby, onSave, onCancel, notify, hideCancel }) {
   const isEdit = !!baby;
+  const { weightUnit: defaultWeightUnit } = useSettings();
   const [name, setName] = useState(baby?.name ?? '');
   const [birthdate, setBirthdate] = useState(baby?.birthdate ?? '');
   const [gender, setGender] = useState(baby?.gender === 'boy' ? 'boy' : baby?.gender === 'girl' ? 'girl' : '');
 
   // weight
-  const [weightUnit, setWeightUnit] = useState(baby?.weight_unit ?? 'lb_oz');
+  const [weightUnit, setWeightUnit] = useState(baby?.weight_unit ?? defaultWeightUnit);
   const [weightUnknown, setWeightUnknown] = useState(isEdit ? baby.weight_grams == null : false);
   const initW = weightToInputs(baby?.weight_grams ?? null, baby?.weight_unit ?? 'lb_oz');
   const [wLb, setWLb] = useState(initW.lb);

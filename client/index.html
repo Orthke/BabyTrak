@@ -18,6 +18,33 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
     <title>BabyTrak</title>
+
+    <!-- Set the color-scheme attribute before first paint so dark mode (or a
+         dark auto-hours window) doesn't flash light on load. Mirrors the
+         resolution logic in SettingsContext.jsx's resolveIsDark(). -->
+    <script>
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem('babytrak.settings') || 'null');
+          var theme = s && (s.theme === 'dark' || s.theme === 'light' || s.theme === 'auto') ? s.theme : 'light';
+          var dark = theme === 'dark';
+          if (theme === 'auto') {
+            var toMin = function (hhmm, fallback) {
+              var m = typeof hhmm === 'string' && hhmm.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+              return m ? Number(m[1]) * 60 + Number(m[2]) : fallback;
+            };
+            var start = toMin(s && s.autoDarkStart, 20 * 60);
+            var end = toMin(s && s.autoDarkEnd, 7 * 60);
+            var now = new Date();
+            var nowMin = now.getHours() * 60 + now.getMinutes();
+            dark = start === end ? false : start < end ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
+          }
+          document.documentElement.setAttribute('data-color-scheme', dark ? 'dark' : 'light');
+        } catch (e) {
+          /* ignore — SettingsProvider will set it once React mounts */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

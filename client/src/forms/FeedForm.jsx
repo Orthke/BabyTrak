@@ -7,6 +7,7 @@ import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration, convertVol
 import { Stopwatch, Pencil } from '../icons.jsx';
 import { FEED_TYPE_ICONS } from '../icons.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 
 const TYPES = [
   { key: 'breast', label: 'Breast' },
@@ -16,6 +17,7 @@ const TYPES = [
 
 export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
+  const { volumeUnit: defaultVolumeUnit } = useSettings();
   const [type, setType] = useState(entry?.type ?? 'breast'); // 'breast' | 'bottle' | 'both'
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
 
@@ -25,7 +27,7 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
 
   // bottle portion
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
-  const [unit, setUnit] = useState(entry?.unit ?? 'ml');
+  const [unit, setUnit] = useState(entry?.unit ?? defaultVolumeUnit);
   const [bottleMode, setBottleMode] = useState(isEdit ? 'manual' : 'timer'); // 'timer' | 'manual'
   const [bottleSeconds, setBottleSeconds] = useState(entry?.bottle_seconds ?? 0);
 

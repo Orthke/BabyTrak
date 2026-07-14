@@ -3,6 +3,7 @@ import { api, serverNow } from '../api.js';
 import { formatTime, KIND_META, FEED_TYPE_META, tile } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 import { KIND_ICONS, FEED_TYPE_ICONS, Calendar3, ChevronLeft, ChevronRight } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
 import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
@@ -58,6 +59,7 @@ export default function Timeline() {
   const [editing, setEditing] = useState(null);
   const notify = useToast();
   const { subjectType, selectedId, selectedBaby, selectedCaregiver } = useBaby();
+  const unitPrefs = useSettings();
   const scrollRef = useRef(null);
   const scrolledRef = useRef(false); // only auto-scroll to "now" once per subject
 
@@ -331,7 +333,7 @@ export default function Timeline() {
                   }
 
                   const top = yFor(Math.max(0, t - dayStart));
-                  const { title } = describe(item);
+                  const { title } = describe(item, unitPrefs);
                   return (
                     <div key={`${item.kind}-${item.id}`}>
                       {bar}

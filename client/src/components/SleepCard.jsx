@@ -9,7 +9,7 @@ const MoonIcon = KIND_ICONS.sleep;
 const COLOR = 'var(--c-sleep)';
 
 function tile() {
-  return { background: `color-mix(in srgb, ${COLOR} 14%, white)`, color: COLOR };
+  return { background: `color-mix(in srgb, ${COLOR} 14%, var(--c-card))`, color: COLOR };
 }
 
 // A live nap timer on the Track screen. `sleep` is the most recent nap (from the

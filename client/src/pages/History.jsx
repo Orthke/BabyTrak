@@ -9,9 +9,11 @@ import {
   FEED_TYPE_META,
   tile,
   ML_PER_OZ,
+  formatVolume,
 } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 import { KIND_ICONS, FEED_TYPE_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown, CalendarRange } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
 import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
@@ -71,14 +73,15 @@ function avgVolumes(items) {
   return count ? sum / count : 0;
 }
 
-// Renders a total in ml, e.g. "220 ml (7.4 oz)".
-function formatVolume(ml) {
+// Renders a volume total in the given display unit, e.g. "220 ml" / "7.4 oz". A
+// zero/empty total reads as "—".
+function formatVolumeTotal(ml, unit) {
   if (!ml) return '—';
-  return `${+ml.toFixed(1)} ml (${+(ml / ML_PER_OZ).toFixed(1)} oz)`;
+  return formatVolume(ml, 'ml', unit);
 }
 
 // Roll a day's timeline entries into the totals shown in the summary modal.
-function buildSummary(dayItems) {
+function buildSummary(dayItems, volumeUnit) {
   const feeds = dayItems.filter((i) => i.kind === 'feed');
   const pumps = dayItems.filter((i) => i.kind === 'pump');
   const diapers = dayItems.filter((i) => i.kind === 'diaper');
@@ -92,10 +95,10 @@ function buildSummary(dayItems) {
 
   return {
     feedCount: feeds.length,
-    bottleVol: formatVolume(sumVolumes(bottleFeeds)),
-    avgBottleVol: formatVolume(avgVolumes(bottleFeeds)),
-    pumpVol: formatVolume(sumVolumes(pumps)),
-    avgPumpVol: formatVolume(avgVolumes(pumps)),
+    bottleVol: formatVolumeTotal(sumVolumes(bottleFeeds), volumeUnit),
+    avgBottleVol: formatVolumeTotal(avgVolumes(bottleFeeds), volumeUnit),
+    pumpVol: formatVolumeTotal(sumVolumes(pumps), volumeUnit),
+    avgPumpVol: formatVolumeTotal(avgVolumes(pumps), volumeUnit),
     wet: diapers.filter((d) => d.wet).length,
     dirty: diapers.filter((d) => d.dirty).length,
     sleepSec,
@@ -105,7 +108,8 @@ function buildSummary(dayItems) {
 
 // Tabular day summary: feeding first, then diapers, sleep, and milestones.
 function DaySummary({ items }) {
-  const s = buildSummary(items);
+  const { volumeUnit } = useSettings();
+  const s = buildSummary(items, volumeUnit);
   return (
     <table className="summary-table">
       <tbody>
@@ -212,6 +216,7 @@ export default function History() {
   const [shownOlder, setShownOlder] = useState(0); // how many >3-day-old days are revealed
   const notify = useToast();
   const { subjectType, selectedId, selectedBaby, selectedCaregiver } = useBaby();
+  const unitPrefs = useSettings();
 
   const isCaregiver = subjectType === 'caregiver';
   const caregiverId = selectedCaregiver?.id;
@@ -327,7 +332,7 @@ export default function History() {
                   const isFeed = item.kind === 'feed';
                   const meta = isFeed ? FEED_TYPE_META[item.type] : KIND_META[item.kind];
                   const Icon = isFeed ? FEED_TYPE_ICONS[item.type] : KIND_ICONS[item.kind];
-                  const { title, sub } = describe(item);
+                  const { title, sub } = describe(item, unitPrefs);
                   return (
                     <div
                       key={`${item.kind}-${item.id}`}

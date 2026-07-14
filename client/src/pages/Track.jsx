@@ -10,7 +10,7 @@ import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } 
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { api, serverNow } from '../api.js';
-import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP, formatBloodSugar } from '../utils.js';
+import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP, formatBloodSugar, formatVolume } from '../utils.js';
 import Modal from '../components/Modal.jsx';
 import FeedForm from '../forms/FeedForm.jsx';
 import PumpForm from '../forms/PumpForm.jsx';
@@ -27,6 +27,7 @@ import DragHandle from '../components/DragHandle.jsx';
 import HideToggle from '../components/HideToggle.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 import { KIND_ICONS, PlayFill, Pencil } from '../icons.jsx';
 
 const OPTIONS = [
@@ -100,21 +101,21 @@ const OPTIONS = [
 const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar'];
 
 function tile(color) {
-  return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
+  return { background: `color-mix(in srgb, ${color} 14%, var(--c-card))`, color };
 }
 
 // One-line summary of the most recent entry of a kind, shown on the right of its
 // card: volume for feeds/pumps, what was in the diaper, or the medication name.
-function lastSummary(item) {
+function lastSummary(item, unitPrefs = {}) {
   switch (item.kind) {
     case 'feed': {
-      if (item.amount != null) return `${item.amount} ${item.unit}`;
+      if (item.amount != null) return formatVolume(item.amount, item.unit, unitPrefs.volumeUnit ?? item.unit);
       const secs = (item.left_seconds || 0) + (item.right_seconds || 0);
       // A breast feed with no time logged is an attempt that didn't take.
       return secs ? formatMinutes(secs) : 'Attempted to feed';
     }
     case 'pump':
-      return item.amount != null ? `${item.amount} ${item.unit}` : null;
+      return item.amount != null ? formatVolume(item.amount, item.unit, unitPrefs.volumeUnit ?? item.unit) : null;
     case 'diaper':
       if (item.wet && item.dirty) return 'Wet & dirty';
       if (item.wet) return 'Wet';
@@ -124,7 +125,7 @@ function lastSummary(item) {
     case 'milestone':
       return item.name;
     case 'measurement':
-      return measurementSummary(item);
+      return measurementSummary(item, unitPrefs.weightUnit ?? item.weight_unit, item.height_unit);
     case 'temperature':
       return formatTemp(item.temp, item.unit);
     case 'bp':
@@ -224,9 +225,9 @@ function SortableTrackItem({ id, children }) {
   });
 }
 
-function OptionCard({ option, item, drag, onOpen, reordering, hidden, onToggleHide }) {
+function OptionCard({ option, item, drag, onOpen, reordering, hidden, onToggleHide, unitPrefs }) {
   const Icon = KIND_ICONS[option.kind];
-  const summary = item && lastSummary(item);
+  const summary = item && lastSummary(item, unitPrefs);
   return (
     <button
       ref={drag.setNodeRef}
@@ -266,6 +267,7 @@ export default function Track() {
   const [last, setLast] = useState({}); // kind -> most recent entry
   const notify = useToast();
   const { subjectType, selectedBaby, selectedId, selectedCaregiver } = useBaby();
+  const unitPrefs = useSettings();
 
   const isCaregiver = subjectType === 'caregiver';
   const caregiverId = selectedCaregiver?.id;
@@ -445,6 +447,7 @@ export default function Track() {
                       reordering={showHandles}
                       hidden={hidden.has(kind)}
                       onToggleHide={() => toggleHide(kind)}
+                      unitPrefs={unitPrefs}
                     />
                   )}
                 </SortableTrackItem>

@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import Modal from './Modal.jsx';
 import BabyForm from '../forms/BabyForm.jsx';
 import CaregiverForm from '../forms/CaregiverForm.jsx';
+import SettingsPanel from './SettingsPanel.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
 import { useToast } from './Toast.jsx';
 import { api } from '../api.js';
 import { formatAge, formatWeight, formatHeight, GENDER_META } from '../utils.js';
-import { GENDER_ICONS, CAREGIVER_ICON, ChevronDown, Pencil, Trash3, Check, Plus, PersonPlus } from '../icons.jsx';
+import { GENDER_ICONS, CAREGIVER_ICON, ChevronDown, Pencil, Trash3, Check, Plus, PersonPlus, GearFill } from '../icons.jsx';
 
 // Weight/height shown for a baby. Defaults to the profile (birth) values, but
 // callers can pass resolved values — e.g. the latest measurement for the
@@ -42,7 +43,7 @@ function latestWith(measurements, field) {
 }
 
 function tile(color) {
-  return { background: `color-mix(in srgb, ${color} 16%, white)`, color };
+  return { background: `color-mix(in srgb, ${color} 16%, var(--c-card))`, color };
 }
 
 const CAREGIVER_COLOR = 'var(--c-neutral)';
@@ -65,7 +66,7 @@ export default function BabySelector() {
   } = useBaby();
   const notify = useToast();
   const [open, setOpen] = useState(false);
-  // view: 'list' | 'add-baby' | 'add-caregiver' | { type, item }(edit)
+  // view: 'list' | 'add-baby' | 'add-caregiver' | 'settings' | { type, item }(edit)
   const [view, setView] = useState('list');
 
   // Latest measurements for the selected baby, so the pill shows current
@@ -138,7 +139,15 @@ export default function BabySelector() {
   };
 
   const modalIcon =
-    view === 'list' ? <SelIcon size={20} /> : view === 'add-caregiver' || editing?.type === 'caregiver' ? <CAREGIVER_ICON size={18} /> : <Pencil size={18} />;
+    view === 'list' ? (
+      <SelIcon size={20} />
+    ) : view === 'settings' ? (
+      <GearFill size={17} />
+    ) : view === 'add-caregiver' || editing?.type === 'caregiver' ? (
+      <CAREGIVER_ICON size={18} />
+    ) : (
+      <Pencil size={18} />
+    );
   const modalTitle =
     view === 'list'
       ? 'Who are we tracking?'
@@ -146,6 +155,8 @@ export default function BabySelector() {
       ? 'Add baby'
       : view === 'add-caregiver'
       ? 'Add caregiver'
+      : view === 'settings'
+      ? 'Settings'
       : `Edit ${editing.item.name}`;
 
   return (
@@ -252,8 +263,14 @@ export default function BabySelector() {
               <button className="btn btn-ghost btn-add-row" onClick={() => setView('add-caregiver')}>
                 <PersonPlus size={18} /> Add caregiver
               </button>
+
+              <button className="btn btn-ghost btn-add-row" style={{ marginTop: 18 }} onClick={() => setView('settings')}>
+                <GearFill size={16} /> Settings
+              </button>
             </div>
           )}
+
+          {view === 'settings' && <SettingsPanel onBack={() => setView('list')} />}
 
           {view === 'add-baby' && (
             <BabyForm

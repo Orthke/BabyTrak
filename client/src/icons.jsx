@@ -16,6 +16,7 @@ import {
   GenderFemale,
   GenderAmbiguous,
   PersonFill,
+  GearFill,
 } from 'react-bootstrap-icons';
 
 // Custom diaper glyph. Matches the react-bootstrap-icons API (size/color props,
@@ -143,4 +144,6 @@ export {
   Eye,
   EyeSlash,
   CalendarRange,
+  GearFill,
+  Sun,
 } from 'react-bootstrap-icons';

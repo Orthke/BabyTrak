@@ -15,6 +15,13 @@ export function convertVolume(amount, fromUnit, toUnit) {
   return Math.round(converted * 10) / 10;
 }
 
+// A volume already in `fromUnit`, formatted in `toUnit`, e.g.
+// formatVolume(120, 'ml', 'oz') -> "4.1 oz". Returns null if the amount is missing.
+export function formatVolume(amount, fromUnit, toUnit) {
+  if (amount == null) return null;
+  return `${convertVolume(amount, fromUnit, toUnit)} ${toUnit}`;
+}
+
 // seconds -> "mm:ss" or "h:mm:ss"
 export function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -216,7 +223,7 @@ export const KIND_META = {
 // background with the full color as the foreground. Shared by the timeline,
 // history, and filter UIs so every icon chip reads the same.
 export function tile(color) {
-  return { background: `color-mix(in srgb, ${color} 14%, white)`, color };
+  return { background: `color-mix(in srgb, ${color} 14%, var(--c-card))`, color };
 }
 
 // Temperature reading -> "98.6°F". Trims a trailing ".0" so whole numbers read
@@ -264,10 +271,12 @@ export const GLUCOSE_CONTEXTS = [
 
 export const glucoseContextLabel = (v) => GLUCOSE_CONTEXTS.find((c) => c.value === v)?.label ?? null;
 
-// One-line summary of a measurement, e.g. "8 lb 4 oz · 21.5 in". Honors the unit
-// the value was entered in. Returns null only if neither was recorded.
-export function measurementSummary(m) {
-  const parts = [formatWeight(m.weight_grams, m.weight_unit), formatHeight(m.height_cm, m.height_unit)].filter(Boolean);
+// One-line summary of a measurement, e.g. "8 lb 4 oz · 21.5 in". Defaults to the
+// unit the value was entered in, but callers can pass the app's display-unit
+// preference to render every measurement consistently. Returns null only if
+// neither was recorded.
+export function measurementSummary(m, weightUnit = m.weight_unit, heightUnit = m.height_unit) {
+  const parts = [formatWeight(m.weight_grams, weightUnit), formatHeight(m.height_cm, heightUnit)].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
 }
 

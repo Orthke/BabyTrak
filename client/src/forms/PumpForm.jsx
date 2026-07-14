@@ -5,14 +5,16 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration, convertVolume } from '../utils.js';
 import { Stopwatch, Pencil } from '../icons.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 
 export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
+  const { volumeUnit: defaultVolumeUnit } = useSettings();
   const [mode, setMode] = useState(isEdit ? 'manual' : 'timer'); // 'timer' | 'manual'
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
   const [seconds, setSeconds] = useState(entry?.duration_seconds ?? 0);
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
-  const [unit, setUnit] = useState(entry?.unit ?? 'ml'); // 'ml' | 'oz'
+  const [unit, setUnit] = useState(entry?.unit ?? defaultVolumeUnit); // 'ml' | 'oz'
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
 

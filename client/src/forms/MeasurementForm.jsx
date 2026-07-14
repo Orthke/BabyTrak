@@ -12,6 +12,7 @@ import {
 } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useSettings } from '../context/SettingsContext.jsx';
 
 // --- small inline input with a unit suffix (mirrors the one in BabyForm) ---
 function SuffixInput({ value, onChange, suffix, placeholder, step = '0.1' }) {
@@ -59,10 +60,11 @@ function heightToInput(cm, unit) {
 
 export default function MeasurementForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
+  const { weightUnit: defaultWeightUnit } = useSettings();
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
 
   // weight
-  const [weightUnit, setWeightUnit] = useState(entry?.weight_unit ?? 'lb_oz');
+  const [weightUnit, setWeightUnit] = useState(entry?.weight_unit ?? defaultWeightUnit);
   const initW = weightToInputs(entry?.weight_grams ?? null, entry?.weight_unit ?? 'lb_oz');
   const [wLb, setWLb] = useState(initW.lb);
   const [wOz, setWOz] = useState(initW.oz);

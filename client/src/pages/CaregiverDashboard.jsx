@@ -7,18 +7,20 @@ import { todayStr, yesterdayStr, formatDate } from '../utils.js';
 
 const MED_COLOR = 'var(--c-med)';
 
-// Fixed categorical order (never re-cycled per filter) for the per-medication stack.
+// Fixed categorical order (never re-cycled per filter) for the per-medication
+// stack. CSS-var references (with dark-mode-brightened overrides in
+// index.css) rather than hardcoded hex, so the stack follows the theme.
 const MED_SERIES_COLORS = [
-  '#2a78d6',
-  '#1baf7a',
-  '#eda100',
-  '#008300',
-  '#4a3aa7',
-  '#e34948',
-  '#e87ba4',
-  '#eb6834',
+  'var(--c-med-series-1)',
+  'var(--c-med-series-2)',
+  'var(--c-med-series-3)',
+  'var(--c-med-series-4)',
+  'var(--c-med-series-5)',
+  'var(--c-med-series-6)',
+  'var(--c-med-series-7)',
+  'var(--c-med-series-8)',
 ];
-const OTHER_COLOR = '#898781';
+const OTHER_COLOR = 'var(--c-med-other)';
 const medSeriesColor = (name, index) => (name === 'Other' ? OTHER_COLOR : MED_SERIES_COLORS[index % MED_SERIES_COLORS.length]);
 
 function StatCard({ Icon, color, value, label }) {
@@ -39,7 +41,12 @@ const tooltipStyle = {
   boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
   fontWeight: 700,
   fontSize: 13,
+  backgroundColor: 'var(--c-card)',
+  color: 'var(--c-text)',
 };
+const axisTick = { fontSize: 11, fill: 'var(--c-muted)' };
+const axisTickBold = { fontSize: 11, fontWeight: 700, fill: 'var(--c-muted)' };
+const gridStroke = 'var(--c-border)';
 
 export default function CaregiverDashboard({ caregiver }) {
   const [days, setDays] = useState(7);
@@ -112,9 +119,9 @@ export default function CaregiverDashboard({ caregiver }) {
             <p className="chart-title">Doses per day</p>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={daily} margin={{ top: 4, right: 16, bottom: 0, left: -16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700 }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="label" tick={axisTickBold} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={axisTick} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
                 {medSeries.map((name, i) => (
