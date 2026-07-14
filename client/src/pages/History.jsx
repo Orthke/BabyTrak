@@ -73,11 +73,13 @@ function avgVolumes(items) {
   return count ? sum / count : 0;
 }
 
-// Renders a volume total in the given display unit, e.g. "220 ml" / "7.4 oz". A
+// Renders a volume total in both units, the Settings-preferred one first and
+// the other in parens, e.g. "220 ml (7.4 oz)" / "7.4 oz (220 ml)". A
 // zero/empty total reads as "—".
 function formatVolumeTotal(ml, unit) {
   if (!ml) return '—';
-  return formatVolume(ml, 'ml', unit);
+  const other = unit === 'ml' ? 'oz' : 'ml';
+  return `${formatVolume(ml, 'ml', unit)} (${formatVolume(ml, 'ml', other)})`;
 }
 
 // Roll a day's timeline entries into the totals shown in the summary modal.
