@@ -153,7 +153,7 @@ export default function Dashboard() {
 }
 
 function BabyDashboard() {
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(7); // 7 | 14 | 30 | 'all' (every logged day, no cutoff)
   const [date, setDate] = useState(''); // '' = rolling range; 'YYYY-MM-DD' = single day
   const [data, setData] = useState(null);
   const [measurements, setMeasurements] = useState(null);
@@ -206,7 +206,9 @@ function BabyDashboard() {
       <p className="section-title">
         {isDay
           ? `${selectedBaby?.name ?? 'Baby'} on ${formatDate(`${date}T00:00:00`)}`
-          : `${selectedBaby?.name ?? 'Baby'}'s last ${days} days`}
+          : days === 'all'
+            ? `${selectedBaby?.name ?? 'Baby'}'s full history`
+            : `${selectedBaby?.name ?? 'Baby'}'s last ${days} days`}
       </p>
       <div className="range-tabs">
         <button
@@ -230,6 +232,15 @@ function BabyDashboard() {
             {d}d
           </button>
         ))}
+        <button
+          className={!isDay && days === 'all' ? 'active' : ''}
+          onClick={() => {
+            setDate('');
+            setDays('all');
+          }}
+        >
+          All
+        </button>
       </div>
       {isDay && (
         <div className="day-picker">
@@ -295,7 +306,13 @@ function BabyDashboard() {
       {!hasData ? (
         <div className="empty">
           <GraphUp className="empty-icon" size={44} />
-          <p>{isDay ? 'Nothing logged on this day.' : 'No data for this range yet. Add some entries.'}</p>
+          <p>
+            {isDay
+              ? 'Nothing logged on this day.'
+              : days === 'all'
+                ? 'Nothing logged yet. Add some entries.'
+                : 'No data for this range yet. Add some entries.'}
+          </p>
         </div>
       ) : (
         <>

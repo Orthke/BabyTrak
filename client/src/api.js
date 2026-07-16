@@ -30,6 +30,10 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+// Stats are bucketed into calendar days on the server; it needs the browser's
+// timezone to know where the user's day boundaries fall (entries are stored in UTC).
+const tzParam = () => encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+
 const withBaby = (data, babyId) => ({ ...data, baby_id: babyId });
 const withCaregiver = (data, caregiverId) => ({ ...data, caregiver_id: caregiverId });
 const q = (babyId) => `?babyId=${babyId ?? ''}`;
@@ -148,10 +152,10 @@ export const api = {
   timeline: (babyId) => request(`/timeline${q(babyId)}`),
   // Pass `date` (YYYY-MM-DD) to scope to a single calendar day instead of a range.
   stats: (babyId, days = 14, date = null) =>
-    request(`/stats?babyId=${babyId ?? ''}&days=${days}${date ? `&date=${date}` : ''}`),
+    request(`/stats?babyId=${babyId ?? ''}&days=${days}&tz=${tzParam()}${date ? `&date=${date}` : ''}`),
   caregiverTimeline: (caregiverId) => request(`/caregiver-timeline${qc(caregiverId)}`),
   caregiverStats: (caregiverId, days = 14, date = null) =>
-    request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}${date ? `&date=${date}` : ''}`),
+    request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}&tz=${tzParam()}${date ? `&date=${date}` : ''}`),
 };
 
 // Generic delete by kind (used by the timeline view).

@@ -859,62 +859,120 @@ router.get('/timeline', (req, res) => {
 });
 
 /* ------------------------------- stats ----------------------------- */
+// Timestamps are stored as UTC ISO strings, but "a day" means a calendar day
+// in the *user's* timezone (sent as ?tz=, an IANA name), not the server's —
+// otherwise entries near midnight land in the wrong day whenever the two
+// zones differ.
+
+const resolveTz = (raw) => {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: raw });
+    return raw;
+  } catch {
+    return undefined; // unknown zone name: fall back to server time
+  }
+};
+
+// YYYY-MM-DD of an instant, in the given timezone (or server-local if none).
+const dayKeyIn = (tz) => (iso) => new Date(iso).toLocaleDateString('en-CA', tz ? { timeZone: tz } : undefined);
+
+// Human label for a day key, independent of server timezone. All-time spans can
+// cross new year, where a bare "Jul 16" would be ambiguous.
+const dayLabel = (key, withYear = false) =>
+  new Date(`${key}T12:00:00Z`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(withYear ? { year: '2-digit' } : {}),
+    timeZone: 'UTC',
+  });
+
+// Bounds for the all-time window. Stored timestamps are ISO strings, so a
+// lexicographic range spanning them keeps the SQL identical to the bounded case.
+const MIN_ISO = '0000-01-01T00:00:00.000Z';
+const MAX_ISO = '9999-12-31T23:59:59.999Z';
+
+// Resolve the requested window to a list of day keys plus a padded UTC query
+// range. Three modes: a rolling range (?days=, ending today in the user's tz),
+// a single calendar day (?date=YYYY-MM-DD, which takes precedence), or
+// everything (?days=all). The padded range over-fetches by a day on each side
+// (real UTC offsets are within ±14h); rows are then trimmed exactly by day-key
+// membership.
+const dayWindow = (dateParam, daysParam, tz) => {
+  const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
+  // All-time: no cutoff, and `keys` is left for the caller to fill from the days
+  // that actually have data. A contiguous span back to the first entry can be
+  // arbitrarily long and mostly empty, and one stray far-off timestamp
+  // shouldn't stretch the axis by years.
+  if (!singleDay && String(daysParam) === 'all') {
+    return { all: true, days: 0, keys: null, sinceIso: MIN_ISO, untilIso: MAX_ISO };
+  }
+  const days = singleDay ? 1 : Math.max(1, Math.min(90, Number(daysParam) || 14));
+  const lastKey = singleDay ? dateParam : dayKeyIn(tz)(new Date().toISOString());
+  const keys = [];
+  const d = new Date(`${lastKey}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - (days - 1));
+  for (let i = 0; i < days; i++) {
+    keys.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  const since = new Date(`${keys[0]}T00:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - 1);
+  const until = new Date(`${lastKey}T00:00:00Z`);
+  until.setUTCDate(until.getUTCDate() + 2);
+  return { all: false, days, keys, sinceIso: since.toISOString(), untilIso: until.toISOString() };
+};
+
+// Sorted distinct day keys across every row that carries a timestamp — the
+// bucket list for the all-time window.
+const keysFromRows = (dayKey, ...groups) =>
+  [...new Set(groups.flatMap(([rows, field]) => rows.map((r) => dayKey(r[field]))))].sort();
 
 router.get('/stats', (req, res) => {
   const baby = babyScope(req);
 
-  // Two modes: a rolling range (?days=) or a single calendar day (?date=YYYY-MM-DD).
-  // A specific day takes precedence when given. Both produce day-bucketed output;
-  // the single-day case is just a one-bucket window.
+  const tz = resolveTz(req.query.tz);
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
-
-  let days, since;
-  if (singleDay) {
-    days = 1;
-    since = new Date(`${dateParam}T00:00:00`); // local midnight of the chosen day
-  } else {
-    days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
-    since = new Date();
-    since.setDate(since.getDate() - (days - 1));
-    since.setHours(0, 0, 0, 0);
-  }
-  // Exclusive upper bound: since + days. Bounds both ends so a past day excludes
-  // entries from the days around it.
-  const until = new Date(since);
-  until.setDate(since.getDate() + days);
-  const sinceIso = since.toISOString();
-  const untilIso = until.toISOString();
+  const win = dayWindow(dateParam, req.query.days, tz);
+  const dayKey = dayKeyIn(tz);
+  const windowKeys = win.all ? null : new Set(win.keys);
+  const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
 
   const empty = {
-    days,
+    days: win.days,
     daily: [],
     totals: { breastCount: 0, bottleCount: 0, diaperCount: 0, bottleMl: 0, breastMinutes: 0, leftMinutes: 0, rightMinutes: 0, pumpCount: 0, pumpMl: 0 },
     milkSplit: { breast: 0, formula: 0 },
   };
   if (!baby) return ok(res, empty);
 
-  const feedings = db.prepare('SELECT * FROM feedings WHERE baby_id = ? AND start_time >= ? AND start_time < ?').all(baby, sinceIso, untilIso);
-  const pumps = db.prepare('SELECT * FROM pumps WHERE baby_id = ? AND start_time >= ? AND start_time < ?').all(baby, sinceIso, untilIso);
-  const diapers = db.prepare('SELECT * FROM diapers WHERE baby_id = ? AND time >= ? AND time < ?').all(baby, sinceIso, untilIso);
+  const feedings = db
+    .prepare('SELECT * FROM feedings WHERE baby_id = ? AND start_time >= ? AND start_time < ?')
+    .all(baby, win.sinceIso, win.untilIso)
+    .filter((r) => inWindow(r.start_time));
+  const pumps = db
+    .prepare('SELECT * FROM pumps WHERE baby_id = ? AND start_time >= ? AND start_time < ?')
+    .all(baby, win.sinceIso, win.untilIso)
+    .filter((r) => inWindow(r.start_time));
+  const diapers = db
+    .prepare('SELECT * FROM diapers WHERE baby_id = ? AND time >= ? AND time < ?')
+    .all(baby, win.sinceIso, win.untilIso)
+    .filter((r) => inWindow(r.time));
+
+  const keys = win.all
+    ? keysFromRows(dayKey, [feedings, 'start_time'], [pumps, 'start_time'], [diapers, 'time'])
+    : win.keys;
+  const multiYear = new Set(keys.map((k) => k.slice(0, 4))).size > 1;
 
   // A feed has a breast portion if it's a breast/both feed, a bottle portion if bottle/both.
   const hasBreast = (f) => f.type === 'breast' || f.type === 'both';
   const hasBottle = (f) => f.type === 'bottle' || f.type === 'both';
 
-  const dayKey = (iso) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
-
   const buckets = {};
-  for (let i = 0; i < days; i++) {
-    const d = new Date(since);
-    d.setDate(since.getDate() + i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  for (const key of keys) {
     buckets[key] = {
       date: key,
-      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      label: dayLabel(key, multiYear),
       breastCount: 0,
       breastMinutes: 0,
       leftMinutes: 0,
@@ -983,7 +1041,7 @@ router.get('/stats', (req, res) => {
     if (hasBottle(f) && f.amount != null) milkSplit[f.milk_type === 'formula' ? 'formula' : 'breast'] += 1;
   }
 
-  ok(res, { days, daily, totals, milkSplit });
+  ok(res, { days: win.all ? daily.length : win.days, daily, totals, milkSplit });
 });
 
 /* ------------------------- caregiver views ------------------------- */
@@ -1016,35 +1074,25 @@ router.get('/caregiver-timeline', (req, res) => {
 router.get('/caregiver-stats', (req, res) => {
   const caregiver = caregiverScope(req);
 
-  // Two modes: a rolling range (?days=) or a single calendar day (?date=YYYY-MM-DD).
-  // A specific day takes precedence when given, mirroring /stats.
+  // Same day-window handling as /stats: days are calendar days in the user's
+  // timezone (?tz=), a single ?date= takes precedence over the rolling range.
+  const tz = resolveTz(req.query.tz);
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
+  const win = dayWindow(dateParam, req.query.days, tz);
+  const dayKey = dayKeyIn(tz);
+  const windowKeys = win.all ? null : new Set(win.keys);
+  const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
 
-  let days, since;
-  if (singleDay) {
-    days = 1;
-    since = new Date(`${dateParam}T00:00:00`);
-  } else {
-    days = Math.max(1, Math.min(90, Number(req.query.days) || 14));
-    since = new Date();
-    since.setDate(since.getDate() - (days - 1));
-    since.setHours(0, 0, 0, 0);
-  }
-  const until = new Date(since);
-  until.setDate(since.getDate() + days);
-  const sinceIso = since.toISOString();
-  const untilIso = until.toISOString();
-
-  const empty = { days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [], medSeries: [] };
+  const empty = { days: win.days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [], medSeries: [] };
   if (!caregiver) return ok(res, empty);
 
   const doses = db
     .prepare('SELECT * FROM med_doses WHERE caregiver_id = ? AND time >= ? AND time < ?')
-    .all(caregiver, sinceIso, untilIso);
+    .all(caregiver, win.sinceIso, win.untilIso)
+    .filter((r) => inWindow(r.time));
 
-  const dayKey = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const keys = win.all ? keysFromRows(dayKey, [doses, 'time']) : win.keys;
+  const multiYear = new Set(keys.map((k) => k.slice(0, 4))).size > 1;
 
   const byMed = {};
   for (const r of doses) {
@@ -1061,21 +1109,15 @@ router.get('/caregiver-stats', (req, res) => {
   const hasOther = byMedList.length > MAX_SERIES;
 
   const buckets = {};
-  for (let i = 0; i < days; i++) {
-    const d = new Date(since);
-    d.setDate(since.getDate() + i);
-    const bucket = {
-      date: dayKey(d),
-      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-      doseCount: 0,
-    };
+  for (const key of keys) {
+    const bucket = { date: key, label: dayLabel(key, multiYear), doseCount: 0 };
     for (const name of seriesNames) bucket[name] = 0;
     if (hasOther) bucket.Other = 0;
-    buckets[dayKey(d)] = bucket;
+    buckets[key] = bucket;
   }
 
   for (const r of doses) {
-    const k = dayKey(new Date(r.time));
+    const k = dayKey(r.time);
     const bucket = buckets[k];
     if (!bucket) continue;
     bucket.doseCount += 1;
@@ -1087,7 +1129,7 @@ router.get('/caregiver-stats', (req, res) => {
   const totals = { doseCount: doses.length, medCount: byMedList.length };
   const medSeries = hasOther ? [...seriesNames, 'Other'] : seriesNames;
 
-  ok(res, { days, daily, totals, byMed: byMedList, medSeries });
+  ok(res, { days: win.all ? daily.length : win.days, daily, totals, byMed: byMedList, medSeries });
 });
 
 export default router;

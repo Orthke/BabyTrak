@@ -1961,12 +1961,15 @@ input[type='time']::-webkit-datetime-edit {
 
 .range-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 4px 2px 14px;
 }
 
 .range-tabs button {
-  padding: 7px 14px;
+  /* Tight enough that all six tabs sit on one row at common phone widths;
+     .range-tabs wraps rather than overflowing on narrower screens. */
+  padding: 7px 10px;
   border: 1px solid var(--c-border);
   border-radius: 8px;
   background: var(--c-card);

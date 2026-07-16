@@ -49,7 +49,7 @@ const axisTickBold = { fontSize: 11, fontWeight: 700, fill: 'var(--c-muted)' };
 const gridStroke = 'var(--c-border)';
 
 export default function CaregiverDashboard({ caregiver }) {
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(7); // 7 | 14 | 30 | 'all' (every logged day, no cutoff)
   const [date, setDate] = useState(''); // '' = rolling range; 'YYYY-MM-DD' = single day
   const [data, setData] = useState(null);
   const notify = useToast();
@@ -75,7 +75,9 @@ export default function CaregiverDashboard({ caregiver }) {
       <p className="section-title">
         {isDay
           ? `${caregiver?.name ?? 'Caregiver'} on ${formatDate(`${date}T00:00:00`)}`
-          : `${caregiver?.name ?? 'Caregiver'}'s last ${days} days`}
+          : days === 'all'
+            ? `${caregiver?.name ?? 'Caregiver'}'s full history`
+            : `${caregiver?.name ?? 'Caregiver'}'s last ${days} days`}
       </p>
       <div className="range-tabs">
         <button className={isDay && date !== yesterday ? 'active' : ''} onClick={() => setDate(today)}>
@@ -96,6 +98,15 @@ export default function CaregiverDashboard({ caregiver }) {
             {d}d
           </button>
         ))}
+        <button
+          className={!isDay && days === 'all' ? 'active' : ''}
+          onClick={() => {
+            setDate('');
+            setDays('all');
+          }}
+        >
+          All
+        </button>
       </div>
       {isDay && (
         <div className="day-picker">
@@ -111,7 +122,13 @@ export default function CaregiverDashboard({ caregiver }) {
       {!hasData ? (
         <div className="empty">
           <GraphUp className="empty-icon" size={44} />
-          <p>{isDay ? 'Nothing logged on this day.' : 'No medications logged in this range yet.'}</p>
+          <p>
+            {isDay
+              ? 'Nothing logged on this day.'
+              : days === 'all'
+                ? 'No medications logged yet.'
+                : 'No medications logged in this range yet.'}
+          </p>
         </div>
       ) : (
         <>
