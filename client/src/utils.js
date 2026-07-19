@@ -18,11 +18,26 @@ export function convertVolume(amount, fromUnit, toUnit) {
   return Math.round(converted * 10) / 10;
 }
 
+export const ML_PER_L = 1000;
+export const OZ_PER_GAL = 128; // US fluid gallon
+
+// Totals over a long range (an all-time dashboard, a month-wide summary) run to
+// five figures, where "24000 ml" is harder to read than "24 L". Past these
+// points the formatter steps up to the larger unit. Individual entries never
+// come close, so they're unaffected.
+const L_FROM_ML = 10000; // 10 L
+const GAL_FROM_OZ = 1000; // 7.8 gal
+
 // A volume already in `fromUnit`, formatted in `toUnit`, e.g.
-// formatVolume(120, 'ml', 'oz') -> "4.1 oz". Returns null if the amount is missing.
+// formatVolume(120, 'ml', 'oz') -> "4.1 oz". Large totals step up to L / gal.
+// Returns null if the amount is missing.
 export function formatVolume(amount, fromUnit, toUnit) {
   if (amount == null) return null;
-  return `${convertVolume(amount, fromUnit, toUnit)} ${toUnit}`;
+  const value = convertVolume(amount, fromUnit, toUnit);
+  const round1 = (n) => Math.round(n * 10) / 10;
+  if (toUnit === 'ml' && Math.abs(value) >= L_FROM_ML) return `${round1(value / ML_PER_L)} L`;
+  if (toUnit === 'oz' && Math.abs(value) >= GAL_FROM_OZ) return `${round1(value / OZ_PER_GAL)} gal`;
+  return `${value} ${toUnit}`;
 }
 
 // seconds -> "mm:ss" or "h:mm:ss"
