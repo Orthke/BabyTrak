@@ -17,18 +17,21 @@ const TYPES = [
 
 export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
-  const { volumeUnit: defaultVolumeUnit } = useSettings();
+  // Editing an existing entry is always manual — a stopwatch can't run for a
+  // feed that already happened. Only new entries follow the setting.
+  const { volumeUnit: defaultVolumeUnit, timingMode } = useSettings();
+  const initialMode = isEdit ? 'manual' : timingMode;
   const [type, setType] = useState(entry?.type ?? 'breast'); // 'breast' | 'bottle' | 'both'
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
 
   // breast portion
-  const [mode, setMode] = useState(isEdit ? 'manual' : 'timer'); // 'timer' | 'manual'
+  const [mode, setMode] = useState(initialMode); // 'timer' | 'manual'
   const [sides, setSides] = useState({ left: entry?.left_seconds ?? 0, right: entry?.right_seconds ?? 0 });
 
   // bottle portion
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
   const [unit, setUnit] = useState(entry?.unit ?? defaultVolumeUnit);
-  const [bottleMode, setBottleMode] = useState(isEdit ? 'manual' : 'timer'); // 'timer' | 'manual'
+  const [bottleMode, setBottleMode] = useState(initialMode); // 'timer' | 'manual'
   const [bottleSeconds, setBottleSeconds] = useState(entry?.bottle_seconds ?? 0);
 
   // shared

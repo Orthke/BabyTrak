@@ -870,12 +870,28 @@ const resolveTz = (raw) => {
     new Intl.DateTimeFormat('en-CA', { timeZone: raw });
     return raw;
   } catch {
-    return undefined; // unknown zone name: fall back to server time
+    return undefined; // zone name the server's ICU data doesn't know
   }
 };
 
-// YYYY-MM-DD of an instant, in the given timezone (or server-local if none).
-const dayKeyIn = (tz) => (iso) => new Date(iso).toLocaleDateString('en-CA', tz ? { timeZone: tz } : undefined);
+// Minutes east of UTC, as sent by the browser. Real offsets are within ±14h.
+const resolveOffset = (raw) => {
+  const n = Number(raw);
+  return Number.isFinite(n) && Math.abs(n) <= 840 ? n : undefined;
+};
+
+// Builds "YYYY-MM-DD of an instant, on the user's clock". Prefers the IANA zone
+// (handles DST across a range); falls back to the browser's numeric offset,
+// which needs no timezone database. Only when the client sends neither — an
+// out-of-date client bundle — does this fall back to the server's own clock,
+// which is a guess: the two agree only if the server shares the user's zone.
+const dayKeyFor = (tz, offsetMin) => {
+  if (tz) return (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });
+  if (offsetMin !== undefined) {
+    return (iso) => new Date(new Date(iso).getTime() + offsetMin * 60000).toISOString().slice(0, 10);
+  }
+  return (iso) => new Date(iso).toLocaleDateString('en-CA');
+};
 
 // Human label for a day key, independent of server timezone. All-time spans can
 // cross new year, where a bare "Jul 16" would be ambiguous.
@@ -898,7 +914,7 @@ const MAX_ISO = '9999-12-31T23:59:59.999Z';
 // everything (?days=all). The padded range over-fetches by a day on each side
 // (real UTC offsets are within ±14h); rows are then trimmed exactly by day-key
 // membership.
-const dayWindow = (dateParam, daysParam, tz) => {
+const dayWindow = (dateParam, daysParam, dayKey) => {
   const singleDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam);
   // All-time: no cutoff, and `keys` is left for the caller to fill from the days
   // that actually have data. A contiguous span back to the first entry can be
@@ -908,7 +924,7 @@ const dayWindow = (dateParam, daysParam, tz) => {
     return { all: true, days: 0, keys: null, sinceIso: MIN_ISO, untilIso: MAX_ISO };
   }
   const days = singleDay ? 1 : Math.max(1, Math.min(90, Number(daysParam) || 14));
-  const lastKey = singleDay ? dateParam : dayKeyIn(tz)(new Date().toISOString());
+  const lastKey = singleDay ? dateParam : dayKey(new Date().toISOString());
   const keys = [];
   const d = new Date(`${lastKey}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - (days - 1));
@@ -931,10 +947,9 @@ const keysFromRows = (dayKey, ...groups) =>
 router.get('/stats', (req, res) => {
   const baby = babyScope(req);
 
-  const tz = resolveTz(req.query.tz);
+  const dayKey = dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const win = dayWindow(dateParam, req.query.days, tz);
-  const dayKey = dayKeyIn(tz);
+  const win = dayWindow(dateParam, req.query.days, dayKey);
   const windowKeys = win.all ? null : new Set(win.keys);
   const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
 
@@ -1074,12 +1089,11 @@ router.get('/caregiver-timeline', (req, res) => {
 router.get('/caregiver-stats', (req, res) => {
   const caregiver = caregiverScope(req);
 
-  // Same day-window handling as /stats: days are calendar days in the user's
-  // timezone (?tz=), a single ?date= takes precedence over the rolling range.
-  const tz = resolveTz(req.query.tz);
+  // Same day-window handling as /stats: days are calendar days on the user's
+  // clock (?tz= / ?tzOffset=), a single ?date= takes precedence over the range.
+  const dayKey = dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const win = dayWindow(dateParam, req.query.days, tz);
-  const dayKey = dayKeyIn(tz);
+  const win = dayWindow(dateParam, req.query.days, dayKey);
   const windowKeys = win.all ? null : new Set(win.keys);
   const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
 

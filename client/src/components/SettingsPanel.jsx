@@ -1,5 +1,5 @@
 import { useSettings } from '../context/SettingsContext.jsx';
-import { MoonStars, Sun, ClockHistory } from '../icons.jsx';
+import { MoonStars, Sun, ClockHistory, Stopwatch, Pencil } from '../icons.jsx';
 
 // Global display-unit preferences: what charts, history, and new-entry forms
 // default to. Distinct from a baby's own weight_unit/height_unit (which just
@@ -12,11 +12,13 @@ export default function SettingsPanel({ onBack }) {
     autoDarkStart,
     autoDarkEnd,
     isDark,
+    timingMode,
     setWeightUnit,
     setVolumeUnit,
     setTheme,
     setAutoDarkStart,
     setAutoDarkEnd,
+    setTimingMode,
   } = useSettings();
 
   return (
@@ -88,6 +90,28 @@ export default function SettingsPanel({ onBack }) {
             grams
           </button>
         </div>
+      </div>
+
+      <div className="field">
+        <label>Timing for feeds &amp; pumps</label>
+        <div className="segmented">
+          <button type="button" className={timingMode === 'timer' ? 'active' : ''} onClick={() => setTimingMode('timer')}>
+            <Stopwatch size={15} /> Timer
+          </button>
+          <button
+            type="button"
+            className={timingMode === 'manual' ? 'active' : ''}
+            onClick={() => setTimingMode('manual')}
+          >
+            <Pencil size={15} /> Manual
+          </button>
+        </div>
+        <p className="selector-empty" style={{ marginTop: 6, marginBottom: 0 }}>
+          {timingMode === 'timer'
+            ? 'New feeds and pumps open with a running-timer control.'
+            : 'New feeds and pumps open with minutes typed in by hand.'}{' '}
+          You can switch on any entry.
+        </p>
       </div>
 
       <p className="selector-empty" style={{ marginTop: 4 }}>

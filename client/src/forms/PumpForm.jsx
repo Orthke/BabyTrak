@@ -9,8 +9,10 @@ import { useSettings } from '../context/SettingsContext.jsx';
 
 export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
-  const { volumeUnit: defaultVolumeUnit } = useSettings();
-  const [mode, setMode] = useState(isEdit ? 'manual' : 'timer'); // 'timer' | 'manual'
+  // Editing an existing entry is always manual — a stopwatch can't run for a
+  // pump that already happened. Only new entries follow the setting.
+  const { volumeUnit: defaultVolumeUnit, timingMode } = useSettings();
+  const [mode, setMode] = useState(isEdit ? 'manual' : timingMode); // 'timer' | 'manual'
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
   const [seconds, setSeconds] = useState(entry?.duration_seconds ?? 0);
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');

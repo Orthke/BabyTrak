@@ -50,6 +50,31 @@ const COLORS = {
 // "Jun 28" — short calendar label for growth-chart x-axis ticks and tooltips.
 const shortDate = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
+const DAY_MS = 86400000;
+
+// Local midnight of an instant, as epoch ms. The growth axis is a real time
+// scale, so points need a numeric x — and measurements are a per-day thing, so
+// the time of day is dropped to keep every point on a clean day boundary.
+const dayStamp = (iso) => {
+  const d = new Date(iso);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+// Evenly spaced whole-day ticks across the growth span. The step is always a
+// whole number of days, so gaps between ticks are uniform; it widens only as
+// far as needed to keep labels from colliding, so short spans tick once a day.
+function dayTicks(points, maxTicks = 6) {
+  if (!points || points.length === 0) return [];
+  const min = points[0].t;
+  const max = points[points.length - 1].t;
+  const span = Math.max(1, Math.round((max - min) / DAY_MS));
+  const step = Math.max(1, Math.ceil(span / Math.max(1, maxTicks - 1)));
+  const ticks = [];
+  for (let t = min; t <= max; t += step * DAY_MS) ticks.push(t);
+  return ticks;
+}
+
 // Custom tooltip for the growth chart: shows the formatted weight with its signed
 // % change from birth weight, plus the length, in the baby's display units.
 function GrowthTooltip({ active, payload }) {
@@ -78,6 +103,28 @@ function GrowthTooltip({ active, payload }) {
   );
 }
 
+// Tooltip for the volume chart. Reads the row directly instead of the series
+// payload, so splitting each line into solid + dashed halves doesn't surface as
+// duplicate (or null) entries.
+function VolumeTooltip({ active, payload, volumeUnit, todayKey }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="growth-tip">
+      <div className="growth-tip-date">
+        {row.label}
+        {row.date === todayKey ? ' · so far today' : ''}
+      </div>
+      <div style={{ color: COLORS.bottle }}>
+        Bottle fed: {row.bottleMl} {volumeUnit}
+      </div>
+      <div style={{ color: COLORS.pump }}>
+        Pumped: {row.pumpMl} {volumeUnit}
+      </div>
+    </div>
+  );
+}
+
 // Turn the raw measurement list into chronological chart rows. Prepends a birth
 // baseline (from the profile birthdate + weight/height) when available so the
 // lines start at birth, and computes each weight's % change from birth weight.
@@ -101,6 +148,7 @@ function buildGrowth(measurements, baby, wUnit) {
   const birthWeightG = baby?.weight_grams ?? raw.find((p) => p.weightG != null)?.weightG ?? null;
 
   return raw.map((p) => ({
+    t: dayStamp(p.time),
     label: shortDate(p.time),
     isBirth: p.isBirth,
     weight: weightValue(p.weightG, wUnit),
@@ -191,15 +239,41 @@ function BabyDashboard() {
 
   const hUnit = selectedBaby?.height_unit ?? 'in';
   const latest = growth && growth.length ? growth[growth.length - 1] : null;
+  const growthTicks = dayTicks(growth);
+  // A single point has no span to scale; give it a day on either side so the
+  // dot lands mid-chart instead of collapsing onto the axis edge.
+  const growthDomain =
+    growth && growth.length
+      ? growth.length === 1
+        ? [growth[0].t - DAY_MS, growth[0].t + DAY_MS]
+        : [growth[0].t, growth[growth.length - 1].t]
+      : ['dataMin', 'dataMax'];
   // Show the chart once at least one measurement is logged; the birth baseline
   // alone (a single point) isn't worth a chart.
   const hasGrowth = !!(measurements && measurements.some((m) => m.weight_grams != null || m.height_cm != null));
   // Daily volume totals come from the server in ml; re-express in the display unit.
-  const dailyVolume = daily.map((d) => ({
-    ...d,
-    bottleMl: convertVolume(d.bottleMl, 'ml', volumeUnit),
-    pumpMl: convertVolume(d.pumpMl, 'ml', volumeUnit),
-  }));
+  //
+  // Today's bucket is still filling up, so its segment is drawn dashed. Recharts
+  // can't dash part of one line, so each series is split in two: the solid half
+  // stops at the last complete day and the dashed half starts from that same
+  // point, so they meet without a gap. -1 when the range has no today to mark
+  // (Yesterday, a past date, or an all-time range whose last day isn't today).
+  const todayIdx = daily.findIndex((d) => d.date === today);
+  const dailyVolume = daily.map((d, i) => {
+    const bottle = convertVolume(d.bottleMl, 'ml', volumeUnit);
+    const pump = convertVolume(d.pumpMl, 'ml', volumeUnit);
+    const complete = todayIdx === -1 || i <= todayIdx - 1;
+    const partial = todayIdx !== -1 && i >= todayIdx - 1;
+    return {
+      ...d,
+      bottleMl: bottle,
+      pumpMl: pump,
+      bottleDone: complete ? bottle : null,
+      pumpDone: complete ? pump : null,
+      bottleToday: partial ? bottle : null,
+      pumpToday: partial ? pump : null,
+    };
+  });
 
   return (
     <div>
@@ -273,7 +347,17 @@ function BabyDashboard() {
           <ResponsiveContainer width="100%" height={230}>
             <LineChart data={growth} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-              <XAxis dataKey="label" tick={axisTickBold} interval="preserveStartEnd" />
+              {/* Time scale, not category: spacing is proportional to the days
+                  actually elapsed, so a month-long gap reads as a month-long gap. */}
+              <XAxis
+                dataKey="t"
+                type="number"
+                scale="time"
+                domain={growthDomain}
+                ticks={growthTicks}
+                tickFormatter={shortDate}
+                tick={axisTickBold}
+              />
               <YAxis yAxisId="w" tick={axisTick} domain={['auto', 'auto']} />
               <YAxis yAxisId="l" orientation="right" tick={axisTick} domain={['auto', 'auto']} />
               <Tooltip content={<GrowthTooltip />} />
@@ -332,17 +416,20 @@ function BabyDashboard() {
           </div>
 
           <div className="chart-card">
-            <p className="chart-title">Volume per day ({volumeUnit})</p>
+            <p className="chart-title">
+              Volume per day ({volumeUnit})
+              {todayIdx !== -1 && <span className="chart-sub"> — dashed: today so far</span>}
+            </p>
             <ResponsiveContainer width="100%" height={210}>
               <LineChart data={dailyVolume} margin={{ top: 4, right: 16, bottom: 0, left: -16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                 <XAxis dataKey="label" tick={axisTickBold} interval="preserveStartEnd" />
                 <YAxis allowDecimals={false} tick={axisTick} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip content={<VolumeTooltip volumeUnit={volumeUnit} todayKey={today} />} />
                 <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
                 <Line
                   type="monotone"
-                  dataKey="bottleMl"
+                  dataKey="bottleDone"
                   name="Bottle fed"
                   stroke={COLORS.bottle}
                   strokeWidth={3}
@@ -350,11 +437,35 @@ function BabyDashboard() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="pumpMl"
+                  dataKey="pumpDone"
                   name="Pumped"
                   stroke={COLORS.pump}
                   strokeWidth={3}
                   dot={{ r: 3 }}
+                />
+                {/* Trailing partial day — same colors, dashed, hidden from the
+                    legend so it reads as one series per source. The dots opt out
+                    of the dash pattern they'd otherwise inherit from the line,
+                    which would break up the marker outlines. */}
+                <Line
+                  type="monotone"
+                  dataKey="bottleToday"
+                  legendType="none"
+                  stroke={COLORS.bottle}
+                  strokeWidth={3}
+                  strokeDasharray="5 4"
+                  dot={{ r: 3, strokeDasharray: 'none' }}
+                  activeDot={{ strokeDasharray: 'none' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="pumpToday"
+                  legendType="none"
+                  stroke={COLORS.pump}
+                  strokeWidth={3}
+                  strokeDasharray="5 4"
+                  dot={{ r: 3, strokeDasharray: 'none' }}
+                  activeDot={{ strokeDasharray: 'none' }}
                 />
               </LineChart>
             </ResponsiveContainer>

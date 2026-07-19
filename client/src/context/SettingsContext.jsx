@@ -3,7 +3,8 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo } 
 const SettingsContext = createContext(null);
 const KEY = 'babytrak.settings';
 // { weightUnit: 'lb_oz'|'kg'|'g', volumeUnit: 'ml'|'oz',
-//   theme: 'light'|'dark'|'auto', autoDarkStart: 'HH:MM', autoDarkEnd: 'HH:MM' }
+//   theme: 'light'|'dark'|'auto', autoDarkStart: 'HH:MM', autoDarkEnd: 'HH:MM',
+//   timingMode: 'timer'|'manual' }
 
 const DEFAULTS = {
   weightUnit: 'lb_oz',
@@ -11,10 +12,12 @@ const DEFAULTS = {
   theme: 'light',
   autoDarkStart: '20:00',
   autoDarkEnd: '07:00',
+  timingMode: 'timer',
 };
 const WEIGHT_UNITS = ['lb_oz', 'kg', 'g'];
 const VOLUME_UNITS = ['ml', 'oz'];
 const THEMES = ['light', 'dark', 'auto'];
+const TIMING_MODES = ['timer', 'manual'];
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const isValidTime = (v) => typeof v === 'string' && TIME_RE.test(v);
@@ -28,6 +31,7 @@ function readStored() {
       theme: THEMES.includes(saved?.theme) ? saved.theme : DEFAULTS.theme,
       autoDarkStart: isValidTime(saved?.autoDarkStart) ? saved.autoDarkStart : DEFAULTS.autoDarkStart,
       autoDarkEnd: isValidTime(saved?.autoDarkEnd) ? saved.autoDarkEnd : DEFAULTS.autoDarkEnd,
+      timingMode: TIMING_MODES.includes(saved?.timingMode) ? saved.timingMode : DEFAULTS.timingMode,
     };
   } catch {
     return DEFAULTS;
@@ -76,6 +80,7 @@ export function SettingsProvider({ children }) {
   const setTheme = useCallback((theme) => update({ theme }), [update]);
   const setAutoDarkStart = useCallback((autoDarkStart) => update({ autoDarkStart }), [update]);
   const setAutoDarkEnd = useCallback((autoDarkEnd) => update({ autoDarkEnd }), [update]);
+  const setTimingMode = useCallback((timingMode) => update({ timingMode }), [update]);
 
   // 'auto' needs to flip live as the clock crosses the window edge while the app
   // is sitting open, so tick a re-render every minute — but only then, since
@@ -104,6 +109,7 @@ export function SettingsProvider({ children }) {
         setTheme,
         setAutoDarkStart,
         setAutoDarkEnd,
+        setTimingMode,
       }}
     >
       {children}
