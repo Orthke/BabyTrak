@@ -6,10 +6,13 @@ export function pad(n) {
 
 export const ML_PER_OZ = 29.5735;
 
-// Re-express a volume in the other unit (rounded to 1 decimal), e.g.
-// convertVolume(60, 'ml', 'oz') -> 2. Same-unit calls are a no-op.
+// Re-express a volume in the other unit, rounded to 1 decimal, e.g.
+// convertVolume(60, 'ml', 'oz') -> 2. Same-unit calls round too rather than
+// passing the number straight through: the input is often computed (a daily
+// average, or a total of oz entries summed in ml) and would otherwise show
+// full float precision, e.g. "116.66666666666667 ml".
 export function convertVolume(amount, fromUnit, toUnit) {
-  if (fromUnit === toUnit) return amount;
+  if (fromUnit === toUnit) return Math.round(amount * 10) / 10;
   const ml = fromUnit === 'oz' ? amount * ML_PER_OZ : amount;
   const converted = toUnit === 'oz' ? ml / ML_PER_OZ : ml;
   return Math.round(converted * 10) / 10;

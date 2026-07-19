@@ -880,16 +880,45 @@ const resolveOffset = (raw) => {
   return Number.isFinite(n) && Math.abs(n) <= 840 ? n : undefined;
 };
 
-// Builds "YYYY-MM-DD of an instant, on the user's clock". Prefers the IANA zone
-// (handles DST across a range); falls back to the browser's numeric offset,
-// which needs no timezone database. Only when the client sends neither — an
-// out-of-date client bundle — does this fall back to the server's own clock,
-// which is a guess: the two agree only if the server shares the user's zone.
+// Minutes east of UTC that `tz` is at `instant`, according to this server's
+// timezone database. Used to check that database against the browser.
+const zoneOffsetAt = (tz, instant) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+    .formatToParts(instant)
+    .reduce((a, p) => ((a[p.type] = p.value), a), {});
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second);
+  return Math.round((asUtc - instant.getTime()) / 60000);
+};
+
+// Builds "YYYY-MM-DD of an instant, on the user's clock".
+//
+// The browser is the authority on what day it is for the user, so its numeric
+// offset is used to audit the zone name: if this server's tz database puts that
+// zone at a different offset than the browser reports (stale or missing tzdata),
+// the zone name is discarded and the browser's offset wins. Otherwise the zone
+// name is preferred, since only it tracks DST correctly across a date range.
+// Falling back to the server's own clock is the last resort — that's a guess,
+// correct only when the server happens to share the user's zone.
 const dayKeyFor = (tz, offsetMin) => {
-  if (tz) return (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });
-  if (offsetMin !== undefined) {
-    return (iso) => new Date(new Date(iso).getTime() + offsetMin * 60000).toISOString().slice(0, 10);
+  const byOffset = (min) => (iso) => new Date(new Date(iso).getTime() + min * 60000).toISOString().slice(0, 10);
+
+  if (tz) {
+    let trusted = true;
+    if (offsetMin !== undefined) {
+      try {
+        trusted = Math.abs(zoneOffsetAt(tz, new Date()) - offsetMin) <= 1;
+      } catch {
+        trusted = false;
+      }
+    }
+    if (trusted) return (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });
   }
+  if (offsetMin !== undefined) return byOffset(offsetMin);
   return (iso) => new Date(iso).toLocaleDateString('en-CA');
 };
 
