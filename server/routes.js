@@ -968,6 +968,43 @@ const dayWindow = (dateParam, daysParam, dayKey) => {
   return { all: false, days, keys, sinceIso: since.toISOString(), untilIso: until.toISOString() };
 };
 
+// The browser can tell us exactly where the user's days begin (?bounds= epoch
+// ms, ?keys= the matching 'YYYY-MM-DD' labels). When it does, bucketing is a
+// plain instant comparison — bucket i is [bounds[i], bounds[i+1]) labelled
+// keys[i] — and the server makes no timezone decision at all. This is the path
+// that cannot disagree with what the History screen shows, because both are
+// working from the same browser-computed boundaries.
+const explicitWindow = (boundsRaw, keysRaw) => {
+  if (typeof boundsRaw !== 'string' || typeof keysRaw !== 'string') return undefined;
+  const bounds = boundsRaw.split(',').map(Number);
+  const keys = keysRaw.split(',');
+  if (bounds.length < 2 || bounds.length !== keys.length + 1) return undefined;
+  if (!bounds.every((n) => Number.isFinite(n))) return undefined;
+  for (let i = 1; i < bounds.length; i++) if (bounds[i] <= bounds[i - 1]) return undefined;
+  if (!keys.every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))) return undefined;
+
+  // Which bucket an instant falls in, or -1 if outside the window.
+  const bucketOf = (iso) => {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t) || t < bounds[0] || t >= bounds[bounds.length - 1]) return -1;
+    let lo = 0;
+    let hi = keys.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (t >= bounds[mid]) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  return {
+    keys,
+    bucketOf,
+    dayKey: (iso) => keys[bucketOf(iso)],
+    sinceIso: new Date(bounds[0]).toISOString(),
+    untilIso: new Date(bounds[bounds.length - 1]).toISOString(),
+  };
+};
+
 // Sorted distinct day keys across every row that carries a timestamp — the
 // bucket list for the all-time window.
 const keysFromRows = (dayKey, ...groups) =>
@@ -976,11 +1013,20 @@ const keysFromRows = (dayKey, ...groups) =>
 router.get('/stats', (req, res) => {
   const baby = babyScope(req);
 
-  const dayKey = dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
+  // Prefer the browser-supplied day boundaries; fall back to deriving them from
+  // the timezone only when an older client doesn't send them.
+  const explicit = explicitWindow(req.query.bounds, req.query.keys);
+  const dayKey = explicit ? explicit.dayKey : dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const win = dayWindow(dateParam, req.query.days, dayKey);
-  const windowKeys = win.all ? null : new Set(win.keys);
-  const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
+  const win = explicit
+    ? { all: false, days: explicit.keys.length, keys: explicit.keys, sinceIso: explicit.sinceIso, untilIso: explicit.untilIso }
+    : dayWindow(dateParam, req.query.days, dayKey);
+  const inWindow = explicit
+    ? (iso) => explicit.bucketOf(iso) !== -1
+    : (() => {
+        const windowKeys = win.all ? null : new Set(win.keys);
+        return (iso) => !windowKeys || windowKeys.has(dayKey(iso));
+      })();
 
   const empty = {
     days: win.days,
@@ -1120,11 +1166,18 @@ router.get('/caregiver-stats', (req, res) => {
 
   // Same day-window handling as /stats: days are calendar days on the user's
   // clock (?tz= / ?tzOffset=), a single ?date= takes precedence over the range.
-  const dayKey = dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
+  const explicit = explicitWindow(req.query.bounds, req.query.keys);
+  const dayKey = explicit ? explicit.dayKey : dayKeyFor(resolveTz(req.query.tz), resolveOffset(req.query.tzOffset));
   const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
-  const win = dayWindow(dateParam, req.query.days, dayKey);
-  const windowKeys = win.all ? null : new Set(win.keys);
-  const inWindow = (iso) => !windowKeys || windowKeys.has(dayKey(iso));
+  const win = explicit
+    ? { all: false, days: explicit.keys.length, keys: explicit.keys, sinceIso: explicit.sinceIso, untilIso: explicit.untilIso }
+    : dayWindow(dateParam, req.query.days, dayKey);
+  const inWindow = explicit
+    ? (iso) => explicit.bucketOf(iso) !== -1
+    : (() => {
+        const windowKeys = win.all ? null : new Set(win.keys);
+        return (iso) => !windowKeys || windowKeys.has(dayKey(iso));
+      })();
 
   const empty = { days: win.days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [], medSeries: [] };
   if (!caregiver) return ok(res, empty);

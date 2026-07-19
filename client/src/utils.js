@@ -56,6 +56,47 @@ export const yesterdayStr = () => {
   return d.toLocaleDateString('en-CA');
 };
 
+// The exact instants where the user's calendar days begin, for the window the
+// dashboard is asking about.
+//
+// The browser is the only thing that reliably knows when the user's day starts,
+// so rather than describing the timezone to the server and hoping it agrees, we
+// hand it the boundaries themselves: bucket i covers [bounds[i], bounds[i+1])
+// and is labelled keys[i]. Local midnights are built with setDate/setHours, so
+// DST-shortened days come out right without any timezone arithmetic.
+//
+// Returns null for the all-time window, whose start isn't known client-side.
+export function localDayWindow(days, date) {
+  const keys = [];
+  const bounds = [];
+  const key = (d) => d.toLocaleDateString('en-CA');
+
+  if (date) {
+    // A single picked day: 'YYYY-MM-DD' parsed as local midnight.
+    const [y, m, dd] = date.split('-').map(Number);
+    const start = new Date(y, m - 1, dd, 0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return { keys: [key(start)], bounds: [start.getTime(), end.getTime()] };
+  }
+  if (days === 'all' || !Number.isFinite(Number(days))) return null;
+
+  const n = Number(days);
+  const first = new Date();
+  first.setHours(0, 0, 0, 0);
+  first.setDate(first.getDate() - (n - 1));
+  for (let i = 0; i < n; i++) {
+    const d = new Date(first);
+    d.setDate(first.getDate() + i);
+    keys.push(key(d));
+    bounds.push(d.getTime());
+  }
+  const last = new Date(first);
+  last.setDate(first.getDate() + n);
+  bounds.push(last.getTime());
+  return { keys, bounds };
+}
+
 // ISO -> "Mon, Jun 28"
 export function formatDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, {

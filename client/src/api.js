@@ -1,4 +1,5 @@
 // Thin fetch wrapper around the BabyTrak API.
+import { localDayWindow } from './utils.js';
 
 // The browser clock and the API server clock can disagree by several seconds
 // (e.g. when the server runs in a VM/container whose clock has drifted). Live
@@ -30,15 +31,21 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-// Stats are bucketed into calendar days on the server; it needs the browser's
-// timezone to know where the user's day boundaries fall (entries are stored in
-// UTC). We send both the IANA zone (correct across DST) and the current numeric
-// offset as a fallback, so a server that can't resolve zone names still buckets
-// by the user's clock rather than its own.
-const tzParams = () => {
+// Stats are bucketed into calendar days, and only the browser knows where the
+// user's days actually begin. We send the day boundaries themselves (exact
+// instants) plus their labels, so the server does a pure instant comparison and
+// has no timezone decision to get wrong.
+//
+// tz/tzOffset still ride along: the all-time window has no client-computable
+// bounds, and an older server that doesn't understand `bounds` falls back to
+// them rather than to its own clock.
+const dayParams = (days, date) => {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
   const offset = -new Date().getTimezoneOffset(); // minutes east of UTC
-  return `&tz=${encodeURIComponent(zone)}&tzOffset=${offset}`;
+  let qs = `&tz=${encodeURIComponent(zone)}&tzOffset=${offset}`;
+  const win = localDayWindow(days, date);
+  if (win) qs += `&bounds=${win.bounds.join(',')}&keys=${win.keys.join(',')}`;
+  return qs;
 };
 
 const withBaby = (data, babyId) => ({ ...data, baby_id: babyId });
@@ -159,10 +166,10 @@ export const api = {
   timeline: (babyId) => request(`/timeline${q(babyId)}`),
   // Pass `date` (YYYY-MM-DD) to scope to a single calendar day instead of a range.
   stats: (babyId, days = 14, date = null) =>
-    request(`/stats?babyId=${babyId ?? ''}&days=${days}${tzParams()}${date ? `&date=${date}` : ''}`),
+    request(`/stats?babyId=${babyId ?? ''}&days=${days}${dayParams(days, date)}${date ? `&date=${date}` : ''}`),
   caregiverTimeline: (caregiverId) => request(`/caregiver-timeline${qc(caregiverId)}`),
   caregiverStats: (caregiverId, days = 14, date = null) =>
-    request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}${tzParams()}${date ? `&date=${date}` : ''}`),
+    request(`/caregiver-stats?caregiverId=${caregiverId ?? ''}&days=${days}${dayParams(days, date)}${date ? `&date=${date}` : ''}`),
 };
 
 // Generic delete by kind (used by the timeline view).
