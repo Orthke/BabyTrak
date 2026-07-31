@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { api } from '../api.js';
 import { useToast } from '../components/Toast.jsx';
-import { CapsulePill, GraphUp } from '../icons.jsx';
-import { todayStr, yesterdayStr, formatDate } from '../utils.js';
+import { CapsulePill, GraphUp, KIND_ICONS } from '../icons.jsx';
+import { todayStr, yesterdayStr, formatDate, formatDayHalf, formatDays } from '../utils.js';
 
 const MED_COLOR = 'var(--c-med)';
+const PERIOD_COLOR = 'var(--c-period)';
+const SYMPTOM_COLOR = 'var(--c-symptom)';
+const PeriodIcon = KIND_ICONS.period;
+const SymptomIcon = KIND_ICONS.symptom;
 
 // Fixed categorical order (never re-cycled per filter) for the per-medication
 // stack. CSS-var references (with dark-mode-brightened overrides in
@@ -35,6 +39,95 @@ function StatCard({ Icon, color, value, label }) {
   );
 }
 
+// One line at the top of the cycle card answering "where am I right now?" — the
+// running period's day, or how long it's been since the last one ended.
+function cycleStatus(period) {
+  if (period.current) {
+    return `Period under way · day ${period.current.day}, started ${formatDayHalf(
+      period.current.start_time,
+      period.current.start_half
+    )}`;
+  }
+  if (period.last) {
+    const { daysAgo } = period.last;
+    const when = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
+    return `No period under way · last one ended ${when}`;
+  }
+  return 'No period under way';
+}
+
+// A cell per day in the shown range, filled on the days a period covered. Read
+// left to right it's the cycle at a glance — where the bleeding days clustered
+// and how much of the window they took up.
+function CycleStrip({ daily }) {
+  return (
+    <div className="cycle-strip" aria-hidden="true">
+      {daily.map((d) => (
+        <span key={d.date} className={`cycle-day ${d.bleeding ? 'on' : ''}`} title={`${d.label}${d.bleeding ? ' · period' : ''}`} />
+      ))}
+    </div>
+  );
+}
+
+// Everything period-related: where the cycle stands now, the averages, the
+// periods that touched the shown range, and what was felt during them.
+function CycleCards({ period, daily }) {
+  const { recent = [], bySymptom = [] } = period;
+  return (
+    <>
+      <div className="chart-card">
+        <p className="chart-title">Cycle</p>
+        <p className="cycle-status">{cycleStatus(period)}</p>
+        <CycleStrip daily={daily} />
+        <table className="summary-table">
+          <tbody>
+            <tr>
+              <td>Average period length</td>
+              <td>{formatDays(period.avgLengthDays) ?? '—'}</td>
+            </tr>
+            <tr>
+              <td>Average cycle length</td>
+              <td>{formatDays(period.avgCycleDays) ?? '—'}</td>
+            </tr>
+          </tbody>
+        </table>
+        {recent.length > 0 && (
+          <div className="med-breakdown">
+            {recent.map((p) => (
+              <div key={p.id} className="med-breakdown-row">
+                <span className="med-breakdown-name">
+                  {formatDayHalf(p.start_time, p.start_half)}
+                  {p.end_time ? ` – ${formatDayHalf(p.end_time, p.end_half)}` : ' – ongoing'}
+                </span>
+                <span className="med-breakdown-count">
+                  {formatDays(p.lengthDays) ?? 'ongoing'}
+                  {p.symptomCount > 0 && ` · ${p.symptomCount} sympt.`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {bySymptom.length > 0 && (
+        <div className="chart-card">
+          <p className="chart-title">By symptom</p>
+          <div className="med-breakdown">
+            {bySymptom.map((s) => (
+              <div key={s.name} className="med-breakdown-row">
+                <span className="med-breakdown-name">{s.name}</span>
+                <span className="med-breakdown-count">
+                  {s.count} {s.count === 1 ? 'time' : 'times'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 const tooltipStyle = {
   borderRadius: 12,
   border: 'none',
@@ -47,6 +140,50 @@ const tooltipStyle = {
 const axisTick = { fontSize: 11, fill: 'var(--c-muted)' };
 const axisTickBold = { fontSize: 11, fontWeight: 700, fill: 'var(--c-muted)' };
 const gridStroke = 'var(--c-border)';
+
+// Doses per day, stacked by medication, and the per-medication totals under it.
+function MedCards({ daily, byMed, medSeries }) {
+  return (
+    <>
+      <div className="chart-card">
+        <p className="chart-title">Doses per day</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={daily} margin={{ top: 4, right: 16, bottom: 0, left: -16 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+            <XAxis dataKey="label" tick={axisTickBold} interval="preserveStartEnd" />
+            <YAxis allowDecimals={false} tick={axisTick} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
+            {medSeries.map((name, i) => (
+              <Bar
+                key={name}
+                dataKey={name}
+                name={name}
+                stackId="meds"
+                fill={medSeriesColor(name, i)}
+                radius={i === medSeries.length - 1 ? [6, 6, 0, 0] : [0, 0, 0, 0]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="chart-card">
+        <p className="chart-title">By medication</p>
+        <div className="med-breakdown">
+          {byMed.map((m) => (
+            <div key={m.name} className="med-breakdown-row">
+              <span className="med-breakdown-name">{m.name}</span>
+              <span className="med-breakdown-count">
+                {m.count} {m.count === 1 ? 'dose' : 'doses'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
 
 export default function CaregiverDashboard({ caregiver }) {
   const [days, setDays] = useState(7); // 7 | 14 | 30 | 'all' (every logged day, no cutoff)
@@ -67,8 +204,18 @@ export default function CaregiverDashboard({ caregiver }) {
 
   if (!data) return <p className="empty">Loading…</p>;
 
-  const { daily = [], totals = { doseCount: 0, medCount: 0 }, byMed = [], medSeries = [] } = data;
-  const hasData = totals.doseCount > 0;
+  const {
+    daily = [],
+    totals = { doseCount: 0, medCount: 0, symptomCount: 0, bleedingDays: 0 },
+    byMed = [],
+    medSeries = [],
+    period = {},
+  } = data;
+  const hasMeds = totals.doseCount > 0;
+  // The cycle section earns its place as soon as anything period-shaped exists —
+  // including a period that's running but has nothing logged against it yet.
+  const hasCycle = period.count > 0 || period.symptomCount > 0 || !!period.current;
+  const hasData = hasMeds || hasCycle;
 
   return (
     <div>
@@ -117,6 +264,12 @@ export default function CaregiverDashboard({ caregiver }) {
       <div className="stat-grid">
         <StatCard Icon={CapsulePill} color={MED_COLOR} value={totals.doseCount} label="Doses taken" />
         <StatCard Icon={CapsulePill} color={MED_COLOR} value={totals.medCount} label="Medications" />
+        {hasCycle && (
+          <>
+            <StatCard Icon={PeriodIcon} color={PERIOD_COLOR} value={totals.bleedingDays} label="Period days" />
+            <StatCard Icon={SymptomIcon} color={SYMPTOM_COLOR} value={totals.symptomCount} label="Symptoms" />
+          </>
+        )}
       </div>
 
       {!hasData ? (
@@ -126,48 +279,14 @@ export default function CaregiverDashboard({ caregiver }) {
             {isDay
               ? 'Nothing logged on this day.'
               : days === 'all'
-                ? 'No medications logged yet.'
-                : 'No medications logged in this range yet.'}
+                ? 'Nothing logged yet.'
+                : 'Nothing logged in this range yet.'}
           </p>
         </div>
       ) : (
         <>
-          <div className="chart-card">
-            <p className="chart-title">Doses per day</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={daily} margin={{ top: 4, right: 16, bottom: 0, left: -16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="label" tick={axisTickBold} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={axisTick} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
-                {medSeries.map((name, i) => (
-                  <Bar
-                    key={name}
-                    dataKey={name}
-                    name={name}
-                    stackId="meds"
-                    fill={medSeriesColor(name, i)}
-                    radius={i === medSeries.length - 1 ? [6, 6, 0, 0] : [0, 0, 0, 0]}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="chart-card">
-            <p className="chart-title">By medication</p>
-            <div className="med-breakdown">
-              {byMed.map((m) => (
-                <div key={m.name} className="med-breakdown-row">
-                  <span className="med-breakdown-name">{m.name}</span>
-                  <span className="med-breakdown-count">
-                    {m.count} {m.count === 1 ? 'dose' : 'doses'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {hasCycle && <CycleCards period={period} daily={daily} />}
+          {hasMeds && <MedCards daily={daily} byMed={byMed} medSeries={medSeries} />}
         </>
       )}
     </div>

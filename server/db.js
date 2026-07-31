@@ -199,6 +199,54 @@ db.exec(`
     comment      TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- A menstrual period, tracked by a caregiver. The start and the end are logged
+  -- as separate events days apart, so one row accumulates: end_time NULL means
+  -- the period is still running — the same in-progress convention as sleeps.
+  --
+  -- Start and end are only recorded to day + half-of-day precision, so each is
+  -- stored twice: *_time is the canonical instant (ordering, timeline placement,
+  -- day bucketing) and *_half is the answer the caregiver actually gave, which
+  -- is what gets displayed. Same canonical-value-plus-display-form split as
+  -- weight_grams / weight_unit; reading the half back out of the instant would
+  -- flip if the device's timezone changed mid-cycle.
+  CREATE TABLE IF NOT EXISTS periods (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    caregiver_id  INTEGER REFERENCES caregivers(id),
+    start_time    TEXT NOT NULL,
+    start_half    TEXT NOT NULL DEFAULT 'am',      -- 'am' | 'pm'
+    start_comment TEXT,
+    end_time      TEXT,                            -- null = period still running
+    end_half      TEXT,                            -- 'am' | 'pm'; null while running
+    end_comment   TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Catalog of symptom names shown in the dropdown. Seeded with the common ones;
+  -- the user can append custom entries (is_custom = 1) that persist for reuse,
+  -- mirroring the medications and milestones catalogs.
+  CREATE TABLE IF NOT EXISTS symptom_types (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    is_custom    INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- A symptom a caregiver logged. Unlike the period's own start/end, a symptom
+  -- is a moment, so it carries a full timestamp. period_id is derived from that
+  -- timestamp (the period whose window contains it) and is null for a symptom
+  -- logged outside every period. Name is denormalized so history survives even
+  -- if the catalog entry is later removed.
+  CREATE TABLE IF NOT EXISTS period_symptoms (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    caregiver_id INTEGER REFERENCES caregivers(id),
+    period_id    INTEGER REFERENCES periods(id),
+    name         TEXT NOT NULL,
+    severity     TEXT NOT NULL DEFAULT 'mild',     -- 'mild' | 'moderate' | 'severe'
+    time         TEXT NOT NULL,
+    comment      TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // --- Lightweight migrations ---
@@ -352,6 +400,36 @@ if (db.prepare('SELECT COUNT(*) c FROM milestone_types').get().c === 0) {
   db.transaction(() => INFANT_MILESTONES.forEach((name) => insMilestoneType.run(name)))();
 }
 
+// Symptoms commonly logged during a menstrual period, most frequent first so the
+// usual ones lead the dropdown. The user can add their own (is_custom = 1) which
+// persist for reuse.
+const PERIOD_SYMPTOMS = [
+  'Cramps',
+  'Bloating',
+  'Fatigue',
+  'Headache',
+  'Back pain',
+  'Mood swings',
+  'Breast tenderness',
+  'Nausea',
+  'Cravings',
+  'Acne',
+  'Irritability',
+  'Anxiety',
+  'Dizziness',
+  'Insomnia',
+  'Diarrhea',
+  'Constipation',
+  'Hot flashes',
+  'Heavy flow',
+  'Spotting',
+  'Clotting',
+];
+const insSymptomType = db.prepare('INSERT INTO symptom_types (name, is_custom) VALUES (?, 0)');
+if (db.prepare('SELECT COUNT(*) c FROM symptom_types').get().c === 0) {
+  db.transaction(() => PERIOD_SYMPTOMS.forEach((name) => insSymptomType.run(name)))();
+}
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feeding_baby ON feedings(baby_id);
   CREATE INDEX IF NOT EXISTS idx_diaper_baby ON diapers(baby_id);
@@ -367,8 +445,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_bloodpressure_caregiver ON blood_pressures(caregiver_id);
   CREATE INDEX IF NOT EXISTS idx_bloodsugar_baby ON blood_sugars(baby_id);
   CREATE INDEX IF NOT EXISTS idx_bloodsugar_caregiver ON blood_sugars(caregiver_id);
+  CREATE INDEX IF NOT EXISTS idx_period_caregiver ON periods(caregiver_id);
+  CREATE INDEX IF NOT EXISTS idx_symptom_caregiver ON period_symptoms(caregiver_id);
+  CREATE INDEX IF NOT EXISTS idx_symptom_period ON period_symptoms(period_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_med_name_cat ON medications(name, category);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_milestone_type_name ON milestone_types(name);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_symptom_type_name ON symptom_types(name);
 `);
 
 export default db;

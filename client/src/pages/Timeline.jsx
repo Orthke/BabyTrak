@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, serverNow } from '../api.js';
-import { formatTime, KIND_META, FEED_TYPE_META, tile } from '../utils.js';
+import { KIND_META, FEED_TYPE_META, tile } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { KIND_ICONS, FEED_TYPE_ICONS, Calendar3, ChevronLeft, ChevronRight } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
-import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
+import { describe, editHeader, whenLabel, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
 
 // How many days of columns to show. The height of one hour is zoomable: it
@@ -108,7 +108,7 @@ export default function Timeline() {
   const caregiverId = selectedCaregiver?.id;
   const subjectName = isCaregiver ? selectedCaregiver?.name : selectedBaby?.name;
 
-  const { shownKinds, filterMenu, reset: resetFilter } = useKindFilter(isCaregiver);
+  const { showsItem, filterMenu, reset: resetFilter } = useKindFilter(isCaregiver);
 
   const load = () =>
     (isCaregiver ? api.caregiverTimeline(caregiverId) : api.timeline(selectedId))
@@ -235,7 +235,7 @@ export default function Timeline() {
   const fmtDay = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const rangeLabel = `${fmtDay(days[0])} – ${fmtDay(days[DAYS - 1])}`;
 
-  const shown = items.filter((it) => shownKinds.has(it.kind));
+  const shown = items.filter(showsItem);
   const hasAny = shown.length > 0;
   const nowMs = serverNow();
 
@@ -341,13 +341,13 @@ export default function Timeline() {
                         type="button"
                         className="tl-event"
                         style={{ top }}
-                        title={`${formatTime(item.when)} · ${title}`}
+                        title={`${whenLabel(item)} · ${title}`}
                         onClick={() => setEditing(item)}
                       >
                         <span className="icon-tile tl-ico" style={tile(color)}>
                           <Icon size={13} />
                         </span>
-                        <span className="tl-etime">{formatTime(item.when)}</span>
+                        <span className="tl-etime">{whenLabel(item)}</span>
                       </button>
                     </div>
                   );

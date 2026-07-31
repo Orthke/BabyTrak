@@ -19,6 +19,8 @@
   --c-temp: #d9534f;
   --c-bp: #b02e6a;
   --c-sugar: #6d28d9;
+  --c-period: #c1121f;
+  --c-symptom: #b5551f;
   --c-wet: #3b82c4;
   --c-dirty: #9a6b4a;
   --c-formula: #7c74c9;
@@ -106,6 +108,8 @@
   --c-temp: #dc5f5c;
   --c-bp: #d55f96;
   --c-sugar: #9f72e6;
+  --c-period: #f0616c;
+  --c-symptom: #e07a3e;
   --c-wet: #4b8cc9;
   --c-dirty: #af7c59;
   --c-formula: #867fcd;
@@ -677,6 +681,13 @@ svg {
 .sleep-card.active {
   border-color: var(--c-sleep);
   background: color-mix(in srgb, var(--c-sleep) 6%, var(--c-card));
+}
+
+/* A period that's under way, highlighted the same way — it stays open for days,
+   so the card has to read as "still going" at a glance. */
+.period-card.active {
+  border-color: var(--c-period);
+  background: color-mix(in srgb, var(--c-period) 6%, var(--c-card));
 }
 
 .sleep-elapsed {
@@ -1938,6 +1949,33 @@ input[type='time']::-webkit-datetime-edit {
 .chart-card .chart-title .chart-sub {
   font-weight: 600;
   color: var(--c-muted);
+}
+
+/* Cycle card (caregiver dashboard): where the cycle stands right now, above a
+   one-cell-per-day strip of the shown range with the period days filled in. */
+.cycle-status {
+  margin: 0 16px 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--c-muted);
+}
+
+.cycle-strip {
+  display: flex;
+  gap: 3px;
+  margin: 0 16px 14px;
+}
+
+.cycle-day {
+  flex: 1;
+  min-width: 3px;
+  height: 22px;
+  border-radius: 3px;
+  background: var(--c-primary-soft);
+}
+
+.cycle-day.on {
+  background: var(--c-period);
 }
 
 .growth-tip {

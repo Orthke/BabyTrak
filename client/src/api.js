@@ -162,6 +162,30 @@ export const api = {
   updateBloodSugar: (id, data) => request(`/blood-sugars/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteBloodSugar: (id) => request(`/blood-sugars/${id}`, { method: 'DELETE' }),
 
+  // Menstrual periods (caregivers only). A period with end_time === null is
+  // still running; the start and the end are recorded by separate calls.
+  listPeriods: (caregiverId) => request(`/periods${qc(caregiverId)}`),
+  activePeriod: (caregiverId) => request(`/periods/active${qc(caregiverId)}`),
+  createPeriod: (data, caregiverId) =>
+    request('/periods', { method: 'POST', body: JSON.stringify(withCaregiver(data, caregiverId)) }),
+  updatePeriod: (id, data) => request(`/periods/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  setPeriodEnd: (id, data) => request(`/periods/${id}/end`, { method: 'PUT', body: JSON.stringify(data) }),
+  clearPeriodEnd: (id) => request(`/periods/${id}/end`, { method: 'DELETE' }),
+  deletePeriod: (id) => request(`/periods/${id}`, { method: 'DELETE' }),
+
+  // Symptom catalog (dropdown options: presets + user-added custom)
+  listSymptomTypes: () => request('/symptom-types'),
+  createSymptomType: (data) => request('/symptom-types', { method: 'POST', body: JSON.stringify(data) }),
+  deleteSymptomType: (id) => request(`/symptom-types/${id}`, { method: 'DELETE' }),
+
+  // Symptoms (logged events). Which period one belongs to is derived server-side
+  // from its timestamp, so there's nothing to pass here.
+  listPeriodSymptoms: (caregiverId) => request(`/period-symptoms${qc(caregiverId)}`),
+  createPeriodSymptom: (data, caregiverId) =>
+    request('/period-symptoms', { method: 'POST', body: JSON.stringify(withCaregiver(data, caregiverId)) }),
+  updatePeriodSymptom: (id, data) => request(`/period-symptoms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deletePeriodSymptom: (id) => request(`/period-symptoms/${id}`, { method: 'DELETE' }),
+
   // Aggregates
   timeline: (babyId) => request(`/timeline${q(babyId)}`),
   // Pass `date` (YYYY-MM-DD) to scope to a single calendar day instead of a range.
@@ -184,6 +208,11 @@ export function deleteByKind(kind, id) {
   if (kind === 'temperature') return api.deleteTemperature(id);
   if (kind === 'bp') return api.deleteBloodPressure(id);
   if (kind === 'sugar') return api.deleteBloodSugar(id);
+  if (kind === 'period') return api.deletePeriod(id);
+  // Deleting the end event reopens the period rather than removing it — the
+  // start is still a real thing that happened.
+  if (kind === 'period_end') return api.clearPeriodEnd(id);
+  if (kind === 'symptom') return api.deletePeriodSymptom(id);
   throw new Error(`Unknown kind: ${kind}`);
 }
 
@@ -199,5 +228,9 @@ export function updateByKind(kind, id, data) {
   if (kind === 'temperature') return api.updateTemperature(id, data);
   if (kind === 'bp') return api.updateBloodPressure(id, data);
   if (kind === 'sugar') return api.updateBloodSugar(id, data);
+  // A period's two events edit the two ends of the same row.
+  if (kind === 'period') return api.updatePeriod(id, data);
+  if (kind === 'period_end') return api.setPeriodEnd(id, data);
+  if (kind === 'symptom') return api.updatePeriodSymptom(id, data);
   throw new Error(`Unknown kind: ${kind}`);
 }

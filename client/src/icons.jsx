@@ -12,6 +12,9 @@ import {
   Thermometer,
   HeartPulse,
   Speedometer2,
+  CalendarHeartFill,
+  CalendarCheck,
+  Bandaid,
   GenderMale,
   GenderFemale,
   GenderAmbiguous,
@@ -86,6 +89,11 @@ export const KIND_ICONS = {
   temperature: Thermometer,
   bp: HeartPulse,
   sugar: Speedometer2,
+  // A period start and its end are two events off one row, so they share the
+  // calendar shape and differ only in the mark inside it.
+  period: CalendarHeartFill,
+  period_end: CalendarCheck,
+  symptom: Bandaid,
 };
 
 // Feeding sub-types
@@ -133,6 +141,9 @@ export {
   InboxFill,
   BarChartLineFill,
   Calendar3,
+  CalendarHeartFill,
+  CalendarCheck,
+  Bandaid,
   Speedometer2,
   Rulers,
   Plus,

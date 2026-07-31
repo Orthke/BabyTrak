@@ -276,7 +276,16 @@ export const KIND_META = {
   temperature: { label: 'Temperature', color: 'var(--c-temp)' },
   bp: { label: 'Blood pressure', color: 'var(--c-bp)' },
   sugar: { label: 'Blood sugar', color: 'var(--c-sugar)' },
+  period: { label: 'Period', color: 'var(--c-period)' },
+  period_end: { label: 'Period end', color: 'var(--c-period)' },
+  symptom: { label: 'Symptom', color: 'var(--c-symptom)' },
 };
+
+// A period start, its end, and the symptoms logged inside it are three event
+// types but one thing to filter by, so the filter offers a single "Period" row
+// and folds the other two into it.
+export const PERIOD_KINDS = ['period', 'period_end', 'symptom'];
+export const filterKind = (kind) => (PERIOD_KINDS.includes(kind) ? 'period' : kind);
 
 // Inline style for a colored "icon tile": a faint tint of the kind color as the
 // background with the full color as the foreground. Shared by the timeline,
@@ -329,6 +338,68 @@ export const GLUCOSE_CONTEXTS = [
 ];
 
 export const glucoseContextLabel = (v) => GLUCOSE_CONTEXTS.find((c) => c.value === v)?.label ?? null;
+
+/* --------------------------- periods & symptoms --------------------------- */
+
+// A period's start and end are only recorded to the day and which half of it,
+// which is all a caregiver can reliably say days after the fact. The instant
+// stored alongside (see the schema comment in db.js) sits mid-half so the event
+// sorts and buckets sensibly; these hours are what the form writes.
+export const HALF_HOURS = { am: 9, pm: 21 };
+export const PERIOD_HALVES = [
+  { value: 'am', label: 'AM' },
+  { value: 'pm', label: 'PM' },
+];
+export const halfLabel = (v) => (v === 'pm' ? 'PM' : 'AM');
+// Which half of the day it is right now — the default when logging a start/end.
+export const currentHalf = () => (new Date().getHours() < 12 ? 'am' : 'pm');
+
+// A local 'YYYY-MM-DD' plus a half, as the ISO instant to store.
+export function isoFromDayHalf(day, half) {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d, HALF_HOURS[half] ?? HALF_HOURS.am, 0, 0, 0).toISOString();
+}
+
+// ISO -> the local 'YYYY-MM-DD' a date input wants.
+export const dayFromIso = (iso) => new Date(iso).toLocaleDateString('en-CA');
+
+// "Jul 28 · AM" — how a period start or end reads, given the day it happened and
+// the half the caregiver picked.
+export function formatDayHalf(iso, half) {
+  if (!iso) return null;
+  const day = new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${day} · ${halfLabel(half)}`;
+}
+
+// Whole calendar days between two instants, on the local clock.
+const localDayStamp = (iso) => {
+  const d = new Date(iso);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+export const daysBetween = (fromIso, toIso) => Math.round((localDayStamp(toIso) - localDayStamp(fromIso)) / 86400000);
+
+// Which day of the period a moment falls on. The start day is day 1.
+export const periodDay = (period, atIso = new Date().toISOString()) =>
+  daysBetween(period.start_time, atIso) + 1;
+
+// Length of a completed period in days, counting both the first and the last day
+// (so a period that starts and ends on one day is 1 day). Null while it's still
+// running.
+export const periodLengthDays = (period) =>
+  period.end_time ? daysBetween(period.start_time, period.end_time) + 1 : null;
+
+// "5 days" / "1 day", or null when there's no count.
+export const formatDays = (n) => (n == null ? null : `${n} ${n === 1 ? 'day' : 'days'}`);
+
+// How bad a symptom was.
+export const SYMPTOM_SEVERITIES = [
+  { value: 'mild', label: 'Mild' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'severe', label: 'Severe' },
+];
+
+export const severityLabel = (v) => SYMPTOM_SEVERITIES.find((s) => s.value === v)?.label ?? null;
 
 // One-line summary of a measurement, e.g. "8 lb 4 oz · 21.5 in". Defaults to the
 // unit the value was entered in, but callers can pass the app's display-unit

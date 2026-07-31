@@ -19,6 +19,11 @@ import {
   formatBP,
   formatBloodSugar,
   glucoseContextLabel,
+  formatDayHalf,
+  formatDays,
+  halfLabel,
+  periodLengthDays,
+  severityLabel,
 } from './utils.js';
 import { KIND_ICONS, FEED_TYPE_ICONS, CONTENT_ICONS } from './icons.jsx';
 import FeedForm from './forms/FeedForm.jsx';
@@ -30,6 +35,8 @@ import MeasurementForm from './forms/MeasurementForm.jsx';
 import TemperatureForm from './forms/TemperatureForm.jsx';
 import BloodPressureForm from './forms/BloodPressureForm.jsx';
 import BloodSugarForm from './forms/BloodSugarForm.jsx';
+import PeriodForm from './forms/PeriodForm.jsx';
+import SymptomForm from './forms/SymptomForm.jsx';
 import SleepForm from './forms/SleepForm.jsx';
 
 const WetIcon = CONTENT_ICONS.wet;
@@ -46,7 +53,22 @@ export const FORM_BY_KIND = {
   bp: BloodPressureForm,
   sugar: BloodSugarForm,
   sleep: SleepForm,
+  // Both period events edit the same row from opposite ends; PeriodForm picks
+  // which one off the entry's kind.
+  period: PeriodForm,
+  period_end: PeriodForm,
+  symptom: SymptomForm,
 };
+
+// What goes in a row's time column. Everything is logged to the minute except a
+// period's start and end, which are only ever recorded as a day and which half
+// of it — showing "9:00 PM" there would claim a precision that was never
+// collected.
+export function whenLabel(item) {
+  if (item.kind === 'period') return halfLabel(item.start_half);
+  if (item.kind === 'period_end') return halfLabel(item.end_half);
+  return formatTime(item.when);
+}
 
 // Title + icon for the edit modal header, per timeline item.
 export function editHeader(item) {
@@ -117,6 +139,28 @@ export function describe(item, unitPrefs = {}) {
       title: formatBloodSugar(item.value, item.unit) ?? 'Blood sugar',
       sub: ctx ? `Blood sugar · ${ctx}` : 'Blood sugar',
     };
+  }
+  if (item.kind === 'period') {
+    // The start row carries the whole period's shape once it has an end, so the
+    // history reads as a period rather than as an isolated "it began" note.
+    const length = formatDays(periodLengthDays(item));
+    return {
+      title: item.end_time ? `Period · ${length}` : 'Period started',
+      sub: item.end_time
+        ? `${formatDayHalf(item.start_time, item.start_half)} – ${formatDayHalf(item.end_time, item.end_half)}`
+        : `Started ${formatDayHalf(item.start_time, item.start_half)} · still going`,
+    };
+  }
+  if (item.kind === 'period_end') {
+    const length = formatDays(periodLengthDays(item));
+    return {
+      title: 'Period ended',
+      sub: `${formatDayHalf(item.end_time, item.end_half)}${length ? ` · ${length} in all` : ''}`,
+    };
+  }
+  if (item.kind === 'symptom') {
+    const sev = severityLabel(item.severity);
+    return { title: item.name, sub: sev ? `Symptom · ${sev}` : 'Symptom' };
   }
   if (item.kind === 'sleep') {
     if (!item.end_time) return { title: 'Sleep · in progress', sub: `Since ${formatTime(item.start_time)}` };

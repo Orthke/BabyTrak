@@ -114,6 +114,9 @@ const deleteCaregiver = db.transaction((id) => {
   db.prepare('DELETE FROM temperatures WHERE caregiver_id = ?').run(id);
   db.prepare('DELETE FROM blood_pressures WHERE caregiver_id = ?').run(id);
   db.prepare('DELETE FROM blood_sugars WHERE caregiver_id = ?').run(id);
+  // Symptoms reference periods, so they go first.
+  db.prepare('DELETE FROM period_symptoms WHERE caregiver_id = ?').run(id);
+  db.prepare('DELETE FROM periods WHERE caregiver_id = ?').run(id);
   return db.prepare('DELETE FROM caregivers WHERE id = ?').run(id);
 });
 
@@ -806,6 +809,236 @@ router.delete('/blood-sugars/:id', (req, res) => {
   ok(res, { deleted: true });
 });
 
+/* ------------------------------ periods ---------------------------- */
+// A menstrual period tracked by a caregiver. The start and the end are logged as
+// separate events days apart, so one row accumulates: end_time NULL is the
+// period that's currently running, like an unfinished nap. Both ends carry a
+// 'am' | 'pm' half alongside the instant, since that's the precision the UI
+// collects (see the schema comment in db.js).
+
+const HALVES = ['am', 'pm'];
+const halfOf = (h) => (HALVES.includes(h) ? h : 'am');
+
+const activePeriod = (caregiver) =>
+  db
+    .prepare('SELECT * FROM periods WHERE caregiver_id = ? AND end_time IS NULL ORDER BY start_time DESC')
+    .get(caregiver) ?? null;
+
+// The period a symptom logged at `time` belongs to: the most recent one whose
+// window contains that instant. A running period has no end yet, so it extends
+// forward indefinitely. Null when the symptom falls outside every period.
+const periodIdFor = (caregiver, time) =>
+  db
+    .prepare(
+      `SELECT id FROM periods
+        WHERE caregiver_id = ? AND start_time <= ? AND (end_time IS NULL OR end_time >= ?)
+        ORDER BY start_time DESC`
+    )
+    .get(caregiver, time, time)?.id ?? null;
+
+// period_id is derived from the symptom's timestamp, so editing a period's start
+// or end can move symptoms in or out of it. Recomputing the caregiver's whole
+// set after any such change keeps the link honest — it's a handful of rows.
+const relinkSymptoms = db.transaction((caregiver) => {
+  const rows = db.prepare('SELECT id, time FROM period_symptoms WHERE caregiver_id = ?').all(caregiver);
+  const upd = db.prepare('UPDATE period_symptoms SET period_id = ? WHERE id = ?');
+  for (const r of rows) upd.run(periodIdFor(caregiver, r.time), r.id);
+});
+
+router.get('/periods', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM periods WHERE caregiver_id = ? ORDER BY start_time DESC').all(caregiver));
+});
+
+// The currently-running period for a caregiver, or null. Lets the UI decide
+// whether tapping the Period card starts one or offers end/symptom.
+router.get('/periods/active', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return ok(res, null);
+  ok(res, activePeriod(caregiver));
+});
+
+router.post('/periods', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return badRequest(res, 'caregiver_id is required');
+  // Only one period runs at a time: if one is already open, hand it back rather
+  // than stacking a second (same guard as starting a nap).
+  const existing = activePeriod(caregiver);
+  if (existing) return ok(res, existing);
+  const info = db
+    .prepare(
+      `INSERT INTO periods (caregiver_id, start_time, start_half, start_comment)
+       VALUES (@caregiver_id, @start_time, @start_half, @start_comment)`
+    )
+    .run({
+      caregiver_id: caregiver,
+      start_time: b.start_time || new Date().toISOString(),
+      start_half: halfOf(b.start_half),
+      start_comment: b.comment ?? null,
+    });
+  // A symptom logged before the start was recorded (or after an earlier period
+  // ended) may now fall inside this one.
+  relinkSymptoms(caregiver);
+  ok(res, db.prepare('SELECT * FROM periods WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// Edit the start of a period. The end is its own event, updated separately.
+router.put('/periods/:id', (req, res) => {
+  const b = req.body;
+  const row = db.prepare('SELECT * FROM periods WHERE id = ?').get(req.params.id);
+  if (!row) return notFound(res);
+  const start = b.start_time || row.start_time;
+  if (row.end_time && start > row.end_time) return badRequest(res, 'The start must be on or before the end');
+  db.prepare('UPDATE periods SET start_time=@start_time, start_half=@start_half, start_comment=@start_comment WHERE id=@id')
+    .run({ id: row.id, start_time: start, start_half: halfOf(b.start_half), start_comment: b.comment ?? null });
+  relinkSymptoms(row.caregiver_id);
+  ok(res, db.prepare('SELECT * FROM periods WHERE id = ?').get(row.id));
+});
+
+// The period logged after this one, if any. Two periods can't overlap, so this
+// is the ceiling on where this one's end may sit — and the reason an older
+// period can't be reopened once a newer one exists, which would otherwise leave
+// it "still running" forever and count every day since as a bleeding day.
+const nextPeriodAfter = (row) =>
+  db
+    .prepare('SELECT * FROM periods WHERE caregiver_id = ? AND id != ? AND start_time > ? ORDER BY start_time ASC')
+    .get(row.caregiver_id, row.id, row.start_time) ?? null;
+
+// Record (or correct) the end of a period — the second half of the flow, logged
+// days after the start.
+router.put('/periods/:id/end', (req, res) => {
+  const b = req.body;
+  const row = db.prepare('SELECT * FROM periods WHERE id = ?').get(req.params.id);
+  if (!row) return notFound(res);
+  const end = b.end_time || new Date().toISOString();
+  if (end < row.start_time) return badRequest(res, 'The end must be on or after the start');
+  const next = nextPeriodAfter(row);
+  if (next && end >= next.start_time) return badRequest(res, 'The end must be before the next period starts');
+  db.prepare('UPDATE periods SET end_time=@end_time, end_half=@end_half, end_comment=@end_comment WHERE id=@id')
+    .run({ id: row.id, end_time: end, end_half: halfOf(b.end_half), end_comment: b.comment ?? null });
+  relinkSymptoms(row.caregiver_id);
+  ok(res, db.prepare('SELECT * FROM periods WHERE id = ?').get(row.id));
+});
+
+// Deleting the end event doesn't delete the period — it reopens it. Only the
+// most recent period can be reopened: an older one left running would never
+// close, and every day since would count as a bleeding day.
+router.delete('/periods/:id/end', (req, res) => {
+  const row = db.prepare('SELECT * FROM periods WHERE id = ?').get(req.params.id);
+  if (!row) return notFound(res);
+  if (nextPeriodAfter(row)) return badRequest(res, 'A later period has been logged, so this one can’t be reopened');
+  db.prepare('UPDATE periods SET end_time=NULL, end_half=NULL, end_comment=NULL WHERE id=?').run(row.id);
+  relinkSymptoms(row.caregiver_id);
+  ok(res, db.prepare('SELECT * FROM periods WHERE id = ?').get(row.id));
+});
+
+// Symptoms are logged events in their own right, so they outlive the period they
+// were attached to — they just stop belonging to one.
+const deletePeriod = db.transaction((id) => {
+  db.prepare('UPDATE period_symptoms SET period_id = NULL WHERE period_id = ?').run(id);
+  return db.prepare('DELETE FROM periods WHERE id = ?').run(id);
+});
+
+router.delete('/periods/:id', (req, res) => {
+  const info = deletePeriod(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
+/* --------------------------- symptom types ------------------------- */
+// Catalog of symptom names for the dropdown (presets + user-added custom).
+
+// Presets keep their seeded (most-common-first) order, with customs sorted after.
+router.get('/symptom-types', (req, res) => {
+  ok(res, db.prepare('SELECT * FROM symptom_types ORDER BY is_custom ASC, id ASC').all());
+});
+
+router.post('/symptom-types', (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Symptom name is required');
+  // Reuse the existing catalog entry if this name already exists
+  // (case-insensitive) so the dropdown doesn't accumulate duplicates.
+  const existing = db.prepare('SELECT * FROM symptom_types WHERE name = ? COLLATE NOCASE').get(name);
+  if (existing) return ok(res, existing);
+  const info = db.prepare('INSERT INTO symptom_types (name, is_custom) VALUES (?, 1)').run(name);
+  ok(res, db.prepare('SELECT * FROM symptom_types WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// Remove a custom symptom from the catalog (presets are protected).
+router.delete('/symptom-types/:id', (req, res) => {
+  const type = db.prepare('SELECT * FROM symptom_types WHERE id = ?').get(req.params.id);
+  if (!type) return notFound(res);
+  if (!type.is_custom) return badRequest(res, 'Built-in symptoms cannot be removed');
+  db.prepare('DELETE FROM symptom_types WHERE id = ?').run(req.params.id);
+  ok(res, { deleted: true });
+});
+
+/* -------------------------- period symptoms ------------------------ */
+// A symptom logged at a moment in time. Which period it belongs to is derived
+// from that timestamp rather than passed in, so it stays right when either the
+// symptom or the period is edited afterwards.
+
+const SEVERITIES = ['mild', 'moderate', 'severe'];
+const severityOf = (s) => (SEVERITIES.includes(s) ? s : 'mild');
+
+router.get('/period-symptoms', (req, res) => {
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return ok(res, []);
+  ok(res, db.prepare('SELECT * FROM period_symptoms WHERE caregiver_id = ? ORDER BY time DESC').all(caregiver));
+});
+
+router.post('/period-symptoms', (req, res) => {
+  const b = req.body;
+  const caregiver = caregiverScope(req);
+  if (!caregiver) return badRequest(res, 'caregiver_id is required');
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Symptom name is required');
+  const time = b.time || new Date().toISOString();
+  const info = db
+    .prepare(
+      `INSERT INTO period_symptoms (caregiver_id, period_id, name, severity, time, comment)
+       VALUES (@caregiver_id, @period_id, @name, @severity, @time, @comment)`
+    )
+    .run({
+      caregiver_id: caregiver,
+      period_id: periodIdFor(caregiver, time),
+      name,
+      severity: severityOf(b.severity),
+      time,
+      comment: b.comment ?? null,
+    });
+  ok(res, db.prepare('SELECT * FROM period_symptoms WHERE id = ?').get(info.lastInsertRowid));
+});
+
+router.put('/period-symptoms/:id', (req, res) => {
+  const b = req.body;
+  const row = db.prepare('SELECT * FROM period_symptoms WHERE id = ?').get(req.params.id);
+  if (!row) return notFound(res);
+  const name = (b.name || '').trim();
+  if (!name) return badRequest(res, 'Symptom name is required');
+  const time = b.time || row.time;
+  db.prepare(
+    'UPDATE period_symptoms SET period_id=@period_id, name=@name, severity=@severity, time=@time, comment=@comment WHERE id=@id'
+  ).run({
+    id: row.id,
+    // Moving a symptom in time can move it into (or out of) a period.
+    period_id: periodIdFor(row.caregiver_id, time),
+    name,
+    severity: severityOf(b.severity),
+    time,
+    comment: b.comment ?? null,
+  });
+  ok(res, db.prepare('SELECT * FROM period_symptoms WHERE id = ?').get(row.id));
+});
+
+router.delete('/period-symptoms/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM period_symptoms WHERE id = ?').run(req.params.id);
+  if (info.changes === 0) return notFound(res);
+  ok(res, { deleted: true });
+});
+
 /* ------------------------------ timeline --------------------------- */
 
 router.get('/timeline', (req, res) => {
@@ -1157,9 +1390,48 @@ router.get('/caregiver-timeline', (req, res) => {
     .prepare('SELECT * FROM blood_sugars WHERE caregiver_id = ?')
     .all(caregiver)
     .map((r) => ({ ...r, kind: 'sugar', when: r.time }));
-  const all = [...meds, ...temperatures, ...bloodPressures, ...bloodSugars].sort((a, b) => (a.when < b.when ? 1 : -1));
+  // One period row surfaces as two timeline events, because that's how it was
+  // logged: a start, then an end days later. `comment` is mapped to whichever
+  // end the event represents so the shared row renderer shows the right note.
+  const periods = db.prepare('SELECT * FROM periods WHERE caregiver_id = ?').all(caregiver);
+  const periodStarts = periods.map((r) => ({ ...r, kind: 'period', when: r.start_time, comment: r.start_comment }));
+  const periodEnds = periods
+    .filter((r) => r.end_time)
+    .map((r) => ({ ...r, kind: 'period_end', when: r.end_time, comment: r.end_comment }));
+  const symptoms = db
+    .prepare('SELECT * FROM period_symptoms WHERE caregiver_id = ?')
+    .all(caregiver)
+    .map((r) => ({ ...r, kind: 'symptom', when: r.time }));
+  const all = [
+    ...meds,
+    ...temperatures,
+    ...bloodPressures,
+    ...bloodSugars,
+    ...periodStarts,
+    ...periodEnds,
+    ...symptoms,
+  ].sort((a, b) => (a.when < b.when ? 1 : -1));
   ok(res, all);
 });
+
+/* --------------------------- cycle math ---------------------------- */
+// Periods are a day-scale thing, not an instant-scale one: their length, the
+// cycle gap between them, and which days count as bleeding days are all figured
+// on the same 'YYYY-MM-DD' keys the rest of the dashboard buckets by, so they
+// can't disagree with it.
+
+const DAY_MS = 86400000;
+
+// Whole days from day key `a` to day key `b`, e.g. '2026-07-01' → '2026-07-04'
+// is 3.
+const daysBetweenKeys = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS);
+
+// Length in days counting both the first and the last day, so a period that
+// starts and ends on the same day is 1 day long. Null while it's still running.
+const periodLength = (p, dayKey) =>
+  p.end_time ? daysBetweenKeys(dayKey(p.start_time), dayKey(p.end_time)) + 1 : null;
+
+const avgOrNull = (nums) => (nums.length ? Math.round(nums.reduce((s, n) => s + n, 0) / nums.length) : null);
 
 router.get('/caregiver-stats', (req, res) => {
   const caregiver = caregiverScope(req);
@@ -1179,15 +1451,44 @@ router.get('/caregiver-stats', (req, res) => {
         return (iso) => !windowKeys || windowKeys.has(dayKey(iso));
       })();
 
-  const empty = { days: win.days, daily: [], totals: { doseCount: 0, medCount: 0 }, byMed: [], medSeries: [] };
+  const emptyPeriod = {
+    count: 0,
+    bleedingDays: 0,
+    symptomCount: 0,
+    avgLengthDays: null,
+    avgCycleDays: null,
+    current: null,
+    last: null,
+    recent: [],
+    bySymptom: [],
+  };
+  const empty = {
+    days: win.days,
+    daily: [],
+    totals: { doseCount: 0, medCount: 0, symptomCount: 0, bleedingDays: 0 },
+    byMed: [],
+    medSeries: [],
+    period: emptyPeriod,
+  };
   if (!caregiver) return ok(res, empty);
 
   const doses = db
     .prepare('SELECT * FROM med_doses WHERE caregiver_id = ? AND time >= ? AND time < ?')
     .all(caregiver, win.sinceIso, win.untilIso)
     .filter((r) => inWindow(r.time));
+  const symptoms = db
+    .prepare('SELECT * FROM period_symptoms WHERE caregiver_id = ? AND time >= ? AND time < ?')
+    .all(caregiver, win.sinceIso, win.untilIso)
+    .filter((r) => inWindow(r.time));
+  // Periods are read in full rather than windowed: one can start before the
+  // window and still cover days inside it, and the cycle averages only mean
+  // anything across the whole history.
+  const allPeriods = db.prepare('SELECT * FROM periods WHERE caregiver_id = ? ORDER BY start_time ASC').all(caregiver);
+  const endedPeriods = allPeriods.filter((p) => p.end_time);
 
-  const keys = win.all ? keysFromRows(dayKey, [doses, 'time']) : win.keys;
+  const keys = win.all
+    ? keysFromRows(dayKey, [doses, 'time'], [symptoms, 'time'], [allPeriods, 'start_time'], [endedPeriods, 'end_time'])
+    : win.keys;
   const multiYear = new Set(keys.map((k) => k.slice(0, 4))).size > 1;
 
   const byMed = {};
@@ -1206,7 +1507,7 @@ router.get('/caregiver-stats', (req, res) => {
 
   const buckets = {};
   for (const key of keys) {
-    const bucket = { date: key, label: dayLabel(key, multiYear), doseCount: 0 };
+    const bucket = { date: key, label: dayLabel(key, multiYear), doseCount: 0, symptomCount: 0, bleeding: 0 };
     for (const name of seriesNames) bucket[name] = 0;
     if (hasOther) bucket.Other = 0;
     buckets[key] = bucket;
@@ -1220,12 +1521,109 @@ router.get('/caregiver-stats', (req, res) => {
     if (seriesNames.includes(r.name)) bucket[r.name] += 1;
     else if (hasOther) bucket.Other += 1;
   }
+  for (const r of symptoms) {
+    const bucket = buckets[dayKey(r.time)];
+    if (bucket) bucket.symptomCount += 1;
+  }
+
+  // A period covers every day from its start through its end, so bleeding days
+  // are marked by walking the window's day keys rather than by testing a single
+  // instant the way the other kinds are. A running period counts through today.
+  const nowIso = new Date().toISOString();
+  const spanOf = (p) => [dayKey(p.start_time), dayKey(p.end_time ?? nowIso)];
+  for (const p of allPeriods) {
+    const [from, to] = spanOf(p);
+    for (const k of keys) if (k >= from && k <= to) buckets[k].bleeding = 1;
+  }
 
   const daily = Object.values(buckets);
-  const totals = { doseCount: doses.length, medCount: byMedList.length };
+  const bleedingDays = daily.filter((d) => d.bleeding).length;
   const medSeries = hasOther ? [...seriesNames, 'Other'] : seriesNames;
 
-  ok(res, { days: win.all ? daily.length : win.days, daily, totals, byMed: byMedList, medSeries });
+  // Periods overlapping the shown window at all (a long one can start before it
+  // and end after it), newest first.
+  const firstKey = keys[0];
+  const lastShownKey = keys[keys.length - 1];
+  const overlapping = allPeriods
+    .filter((p) => {
+      if (keys.length === 0) return false;
+      const [from, to] = spanOf(p);
+      return from <= lastShownKey && to >= firstKey;
+    })
+    .reverse();
+
+  const bySymptomCounts = {};
+  for (const r of symptoms) bySymptomCounts[r.name] = (bySymptomCounts[r.name] || 0) + 1;
+  const bySymptom = Object.entries(bySymptomCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Per-period symptom counts span the whole period, not just the shown window —
+  // a period reaching back before it logged symptoms back there too.
+  const symptomsPerPeriod = new Map(
+    db
+      .prepare('SELECT period_id, COUNT(*) c FROM period_symptoms WHERE caregiver_id = ? AND period_id IS NOT NULL GROUP BY period_id')
+      .all(caregiver)
+      .map((r) => [r.period_id, r.c])
+  );
+
+  // Cycle length is the start-to-start gap between consecutive periods. It and
+  // the average period length are computed over the full history rather than the
+  // window, since a 7-day view rarely holds enough periods to average.
+  const startKeys = allPeriods.map((p) => dayKey(p.start_time));
+  const cycleGaps = startKeys
+    .slice(1)
+    .map((k, i) => daysBetweenKeys(startKeys[i], k))
+    .filter((n) => n > 0);
+  const lengths = endedPeriods.map((p) => periodLength(p, dayKey)).filter((n) => n != null);
+
+  const running = allPeriods.find((p) => !p.end_time) ?? null;
+  const lastEnded = endedPeriods[endedPeriods.length - 1] ?? null;
+  const todayKey = dayKey(nowIso);
+
+  const period = {
+    count: overlapping.length,
+    bleedingDays,
+    symptomCount: symptoms.length,
+    avgLengthDays: avgOrNull(lengths),
+    avgCycleDays: avgOrNull(cycleGaps),
+    // Day 1 is the start day itself, so a period that started today is on day 1.
+    current: running
+      ? {
+          id: running.id,
+          start_time: running.start_time,
+          start_half: running.start_half,
+          day: daysBetweenKeys(dayKey(running.start_time), todayKey) + 1,
+        }
+      : null,
+    last: lastEnded
+      ? {
+          id: lastEnded.id,
+          end_time: lastEnded.end_time,
+          end_half: lastEnded.end_half,
+          daysAgo: daysBetweenKeys(dayKey(lastEnded.end_time), todayKey),
+        }
+      : null,
+    recent: overlapping.map((p) => ({
+      id: p.id,
+      start_time: p.start_time,
+      start_half: p.start_half,
+      end_time: p.end_time,
+      end_half: p.end_half,
+      lengthDays: periodLength(p, dayKey),
+      symptomCount: symptomsPerPeriod.get(p.id) ?? 0,
+    })),
+    bySymptom,
+  };
+
+  const totals = {
+    doseCount: doses.length,
+    medCount: byMedList.length,
+    symptomCount: symptoms.length,
+    bleedingDays,
+  };
+
+  ok(res, { days: win.all ? daily.length : win.days, daily, totals, byMed: byMedList, medSeries, period });
 });
 
 export default router;

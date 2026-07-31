@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { KIND_META, tile } from '../utils.js';
+import { KIND_META, filterKind, tile } from '../utils.js';
 import { KIND_ICONS, Check, Funnel, FunnelFill } from '../icons.jsx';
 
 // Kinds a caregiver logs — the filter only offers these in the caregiver view.
-const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar'];
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar', 'period'];
 // Kinds tracked only for caregivers, never babies (excluded from the baby filter).
-const CAREGIVER_ONLY_KINDS = ['bp'];
+const CAREGIVER_ONLY_KINDS = ['bp', 'period'];
 
 // The Track page's out-of-the-box card order (sleep leads, then the OPTIONS
 // order) and the localStorage keys it persists a user's custom order and hidden
 // cards under. We mirror all three so the filter lists kinds in the same order
 // the user sees on Track and omits the ones they've hidden.
-const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp', 'sugar'];
+const TRACK_DEFAULT_ORDER = ['sleep', 'feed', 'pump', 'diaper', 'med', 'milestone', 'measurement', 'temperature', 'bp', 'sugar', 'period'];
 const TRACK_ORDER_KEY = 'babytrak.trackOrder';
 const TRACK_HIDDEN_KEY = 'babytrak.hiddenKinds';
 
@@ -107,10 +107,11 @@ export function FilterMenu({ kinds, shown, allSelected, active, onToggle, onTogg
   );
 }
 
-// Encapsulates the kind-filter state and its dropdown. Returns the set of kinds
-// currently shown, a ready-to-render <FilterMenu>, and a `reset()` to clear the
-// filter back to "all shown" (call it when the subject changes). Both the
-// History and Timeline pages drive their views off this so they filter alike.
+// Encapsulates the kind-filter state and its dropdown. Returns `showsItem(item)`
+// (the predicate a page filters its entries with), a ready-to-render
+// <FilterMenu>, and a `reset()` to clear the filter back to "all shown" (call it
+// when the subject changes). Both the History and Timeline pages drive their
+// views off this so they filter alike.
 export function useKindFilter(isCaregiver) {
   const [enabledKinds, setEnabledKinds] = useState(null); // Set of kinds shown; null = all shown
 
@@ -147,5 +148,10 @@ export function useKindFilter(isCaregiver) {
     />
   );
 
-  return { shownKinds, filterMenu, reset };
+  // Some kinds share a filter row — a period start, its end, and the symptoms
+  // logged inside it are all one "Period" toggle — so an item's kind is folded
+  // before the lookup.
+  const showsItem = (item) => shownKinds.has(filterKind(item.kind));
+
+  return { showsItem, filterMenu, reset };
 }

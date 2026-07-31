@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, deleteByKind } from '../api.js';
 import {
-  formatTime,
   formatDate,
   formatMinutes,
   sleepSeconds,
   KIND_META,
   FEED_TYPE_META,
+  PERIOD_KINDS,
   tile,
   ML_PER_OZ,
   formatVolume,
@@ -16,7 +16,7 @@ import { useBaby } from '../context/BabyContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { KIND_ICONS, FEED_TYPE_ICONS, MoonStars, Trash3, BarChartLineFill, ChevronDown, CalendarRange } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
-import { describe, editHeader, FORM_BY_KIND } from '../entryDisplay.jsx';
+import { describe, editHeader, whenLabel, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
 
 // Days within this many days of today show on load; older days stay behind the
@@ -224,7 +224,7 @@ export default function History() {
   const caregiverId = selectedCaregiver?.id;
   const subjectName = isCaregiver ? selectedCaregiver?.name : selectedBaby?.name;
 
-  const { shownKinds, filterMenu, reset: resetFilter } = useKindFilter(isCaregiver);
+  const { showsItem, filterMenu, reset: resetFilter } = useKindFilter(isCaregiver);
 
   const load = () =>
     (isCaregiver ? api.caregiverTimeline(caregiverId) : api.timeline(selectedId))
@@ -252,7 +252,11 @@ export default function History() {
     if (!confirm('Delete this entry?')) return;
     try {
       await deleteByKind(item.kind, item.id);
-      setItems((prev) => prev.filter((i) => !(i.kind === item.kind && i.id === item.id)));
+      // A period's start and end are two rows off one record, so deleting either
+      // changes the other's row too (or removes it) — those need a re-pull rather
+      // than dropping just the one that was tapped.
+      if (PERIOD_KINDS.includes(item.kind)) await load();
+      else setItems((prev) => prev.filter((i) => !(i.kind === item.kind && i.id === item.id)));
       notify('Deleted');
     } catch (e) {
       notify('Error: ' + e.message);
@@ -277,7 +281,7 @@ export default function History() {
     );
   }
 
-  const filteredItems = items.filter((item) => shownKinds.has(item.kind));
+  const filteredItems = items.filter(showsItem);
 
   const groups = {};
   for (const item of filteredItems) {
@@ -358,7 +362,7 @@ export default function History() {
                         <div className="ti-sub">{sub}</div>
                         {item.comment && <div className="ti-comment">{item.comment}</div>}
                       </div>
-                      <div className="ti-time">{formatTime(item.when)}</div>
+                      <div className="ti-time">{whenLabel(item)}</div>
                       <button
                         className="del-btn"
                         tabIndex={isCollapsed ? -1 : 0}

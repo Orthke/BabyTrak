@@ -10,7 +10,17 @@ import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } 
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { api, serverNow } from '../api.js';
-import { timeAgo, formatMinutes, measurementSummary, formatTemp, formatBP, formatBloodSugar, formatVolume } from '../utils.js';
+import {
+  timeAgo,
+  formatMinutes,
+  measurementSummary,
+  formatTemp,
+  formatBP,
+  formatBloodSugar,
+  formatVolume,
+  formatDayHalf,
+  periodDay,
+} from '../utils.js';
 import Modal from '../components/Modal.jsx';
 import FeedForm from '../forms/FeedForm.jsx';
 import PumpForm from '../forms/PumpForm.jsx';
@@ -21,8 +31,11 @@ import MeasurementForm from '../forms/MeasurementForm.jsx';
 import TemperatureForm from '../forms/TemperatureForm.jsx';
 import BloodPressureForm from '../forms/BloodPressureForm.jsx';
 import BloodSugarForm from '../forms/BloodSugarForm.jsx';
+import PeriodForm from '../forms/PeriodForm.jsx';
+import SymptomForm from '../forms/SymptomForm.jsx';
 import SleepForm from '../forms/SleepForm.jsx';
 import SleepCard from '../components/SleepCard.jsx';
+import PeriodCard from '../components/PeriodCard.jsx';
 import DragHandle from '../components/DragHandle.jsx';
 import HideToggle from '../components/HideToggle.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -97,8 +110,10 @@ const OPTIONS = [
   },
 ];
 
-// Kinds a caregiver can track (they don't have feeds, diapers, etc.).
-const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar'];
+// Kinds a caregiver can track (they don't have feeds, diapers, etc.). 'period'
+// isn't in OPTIONS: like sleep, it doesn't open a form straight from the card —
+// it has its own card and its own flow, so it's named here instead.
+const CAREGIVER_KINDS = ['med', 'temperature', 'bp', 'sugar', 'period'];
 
 function tile(color) {
   return { background: `color-mix(in srgb, ${color} 14%, var(--c-card))`, color };
@@ -402,7 +417,26 @@ export default function Track() {
     }
   };
 
+  // Period flows. A period spans days, so its start and its end are two separate
+  // logs: tapping the card with none running opens the start form, and tapping
+  // it while one is running asks whether this is the end or a symptom.
+  //  - `last.period` is the newest period (from the timeline), so no end_time on
+  //    it means one is currently running.
+  const [periodChoice, setPeriodChoice] = useState(false);
+  const [periodForm, setPeriodForm] = useState(null); // null | { mode: 'start' | 'end', entry }
+  const [symptomOpen, setSymptomOpen] = useState(false);
+
+  const currentPeriod = last.period && !last.period.end_time ? last.period : null;
+
+  const openPeriod = () => {
+    if (currentPeriod) setPeriodChoice(true);
+    else setPeriodForm({ mode: 'start', entry: null });
+  };
+
   const SleepIcon = KIND_ICONS.sleep;
+  const PeriodIcon = KIND_ICONS.period;
+  const PeriodEndIcon = KIND_ICONS.period_end;
+  const SymptomIcon = KIND_ICONS.symptom;
 
   const active = options.find((o) => o.kind === open);
   const ActiveIcon = active && KIND_ICONS[active.kind];
@@ -433,6 +467,19 @@ export default function Track() {
                       reordering={showHandles}
                       hidden={hidden.has('sleep')}
                       onToggleHide={() => toggleHide('sleep')}
+                    />
+                  )}
+                </SortableTrackItem>
+              ) : kind === 'period' ? (
+                <SortableTrackItem key="period" id="period">
+                  {(drag) => (
+                    <PeriodCard
+                      period={last.period}
+                      onOpen={openPeriod}
+                      drag={drag}
+                      reordering={showHandles}
+                      hidden={hidden.has('period')}
+                      onToggleHide={() => toggleHide('period')}
                     />
                   )}
                 </SortableTrackItem>
@@ -515,6 +562,82 @@ export default function Track() {
           >
             <Pencil size={15} /> Enter manually
           </button>
+        </Modal>
+      )}
+
+      {periodChoice && (
+        <Modal
+          title={`Period · ${subjectName ?? ''}`}
+          icon={<PeriodIcon size={20} color="var(--c-period)" />}
+          onClose={() => setPeriodChoice(false)}
+        >
+          <p className="modal-prompt">
+            {currentPeriod &&
+              `Day ${periodDay(currentPeriod)}, started ${formatDayHalf(currentPeriod.start_time, currentPeriod.start_half)}.`}{' '}
+            What are you logging?
+          </p>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setPeriodChoice(false);
+              setPeriodForm({ mode: 'end', entry: currentPeriod });
+            }}
+          >
+            <PeriodEndIcon size={15} /> Log period end
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              setPeriodChoice(false);
+              setSymptomOpen(true);
+            }}
+          >
+            <SymptomIcon size={15} /> Log a symptom
+          </button>
+        </Modal>
+      )}
+
+      {periodForm && (
+        <Modal
+          title={periodForm.mode === 'end' ? `Period end · ${subjectName ?? ''}` : `Period · ${subjectName ?? ''}`}
+          icon={
+            periodForm.mode === 'end' ? (
+              <PeriodEndIcon size={20} color="var(--c-period)" />
+            ) : (
+              <PeriodIcon size={20} color="var(--c-period)" />
+            )
+          }
+          onClose={() => setPeriodForm(null)}
+        >
+          <PeriodForm
+            caregiverId={caregiverId}
+            mode={periodForm.mode}
+            entry={periodForm.entry}
+            notify={notify}
+            onCancel={() => setPeriodForm(null)}
+            onSaved={() => {
+              setPeriodForm(null);
+              loadLast();
+            }}
+          />
+        </Modal>
+      )}
+
+      {symptomOpen && (
+        <Modal
+          title={`Symptom · ${subjectName ?? ''}`}
+          icon={<SymptomIcon size={20} color="var(--c-symptom)" />}
+          onClose={() => setSymptomOpen(false)}
+        >
+          <SymptomForm
+            caregiverId={caregiverId}
+            notify={notify}
+            onCancel={() => setSymptomOpen(false)}
+            onSaved={() => {
+              setSymptomOpen(false);
+              loadLast();
+            }}
+          />
         </Modal>
       )}
 
