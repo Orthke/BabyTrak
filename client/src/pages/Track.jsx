@@ -13,6 +13,7 @@ import { api, serverNow } from '../api.js';
 import {
   timeAgo,
   formatMinutes,
+  formatTime,
   measurementSummary,
   formatTemp,
   formatBP,
@@ -35,13 +36,14 @@ import PeriodForm from '../forms/PeriodForm.jsx';
 import SymptomForm from '../forms/SymptomForm.jsx';
 import SleepForm from '../forms/SleepForm.jsx';
 import SleepCard from '../components/SleepCard.jsx';
+import ElapsedField from '../components/ElapsedField.jsx';
 import PeriodCard from '../components/PeriodCard.jsx';
 import DragHandle from '../components/DragHandle.jsx';
 import HideToggle from '../components/HideToggle.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
-import { KIND_ICONS, PlayFill, Pencil } from '../icons.jsx';
+import { KIND_ICONS, PlayFill, Pencil, ClockHistory } from '../icons.jsx';
 
 const OPTIONS = [
   {
@@ -375,19 +377,26 @@ export default function Track() {
   }, [loadLast]);
 
   // Sleep flows:
-  //  - tapping the card opens a chooser (start a live timer, or enter manually)
+  //  - tapping the card opens a chooser (start a live timer, back-date a nap
+  //    that's already under way, or enter it manually)
   //  - the live timer's Stop opens the form pre-filled so the nap can be adjusted
   //    and commented before it's saved.
-  const [napChoice, setNapChoice] = useState(false);
+  const [napChoice, setNapChoice] = useState(null); // null | 'choose' | 'ago'
+  const [napAgo, setNapAgo] = useState(0); // minutes since the running nap began
   const [sleepForm, setSleepForm] = useState(null); // null | { entry } (entry null = manual create)
   const [napBusy, setNapBusy] = useState(false);
 
-  const startNapTimer = async () => {
+  // Starts a live (no end_time) nap. `minutesAgo` back-dates the start for a nap
+  // that's already been going a while, so the card's timer picks up mid-nap.
+  const startNapTimer = async (minutesAgo = 0) => {
     setNapBusy(true);
     try {
-      await api.createSleep({}, selectedId);
-      setNapChoice(false);
-      notify('Nap started');
+      const payload =
+        minutesAgo > 0 ? { start_time: new Date(serverNow() - minutesAgo * 60000).toISOString() } : {};
+      await api.createSleep(payload, selectedId);
+      setNapChoice(null);
+      setNapAgo(0);
+      notify(minutesAgo > 0 ? `Nap started ${formatMinutes(minutesAgo * 60)} ago` : 'Nap started');
       await loadLast();
     } catch (e) {
       notify('Error: ' + e.message);
@@ -460,7 +469,10 @@ export default function Track() {
                   {(drag) => (
                     <SleepCard
                       sleep={last.sleep}
-                      onStart={() => setNapChoice(true)}
+                      onStart={() => {
+                        setNapAgo(0);
+                        setNapChoice('choose');
+                      }}
                       onStop={stopNap}
                       busy={napBusy}
                       drag={drag}
@@ -546,22 +558,53 @@ export default function Track() {
         <Modal
           title={`Sleep · ${subjectName ?? ''}`}
           icon={<SleepIcon size={20} color="var(--c-sleep)" />}
-          onClose={() => setNapChoice(false)}
+          onClose={() => setNapChoice(null)}
         >
-          <p className="modal-prompt">How do you want to log this nap?</p>
-          <button className="btn btn-primary" disabled={napBusy} onClick={startNapTimer}>
-            <PlayFill size={15} /> {napBusy ? 'Starting…' : 'Start a nap timer'}
-          </button>
-          <button
-            className="btn btn-ghost"
-            disabled={napBusy}
-            onClick={() => {
-              setNapChoice(false);
-              setSleepForm({ entry: null });
-            }}
-          >
-            <Pencil size={15} /> Enter manually
-          </button>
+          {napChoice === 'choose' ? (
+            <>
+              <p className="modal-prompt">How do you want to log this nap?</p>
+              <button className="btn btn-primary" disabled={napBusy} onClick={() => startNapTimer()}>
+                <PlayFill size={15} /> {napBusy ? 'Starting…' : 'Start a nap timer'}
+              </button>
+              <button className="btn btn-ghost" disabled={napBusy} onClick={() => setNapChoice('ago')}>
+                <ClockHistory size={15} /> Nap already in progress
+              </button>
+              <button
+                className="btn btn-ghost"
+                disabled={napBusy}
+                onClick={() => {
+                  setNapChoice(null);
+                  setSleepForm({ entry: null });
+                }}
+              >
+                <Pencil size={15} /> Enter manually
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="modal-prompt">How long ago did the nap start?</p>
+              <div className="field">
+                <ElapsedField value={napAgo} onChange={setNapAgo} />
+              </div>
+              <div className="field">
+                <label>
+                  {napAgo > 0
+                    ? `Started at ${formatTime(new Date(serverNow() - napAgo * 60000).toISOString())} — napping ${formatMinutes(napAgo * 60)}`
+                    : 'Pick how long the nap has been running'}
+                </label>
+              </div>
+              <button
+                className="btn btn-primary"
+                disabled={napBusy || napAgo <= 0}
+                onClick={() => startNapTimer(napAgo)}
+              >
+                <PlayFill size={15} /> {napBusy ? 'Starting…' : 'Start nap'}
+              </button>
+              <button className="btn btn-ghost" disabled={napBusy} onClick={() => setNapChoice('choose')}>
+                Back
+              </button>
+            </>
+          )}
         </Modal>
       )}
 

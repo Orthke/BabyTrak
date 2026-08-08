@@ -1306,6 +1306,11 @@ router.get('/stats', (req, res) => {
       pumpMl: 0,
       diaperWet: 0,
       diaperDirty: 0,
+      // Mutually exclusive buckets so a stacked chart sums to diaperCount: a
+      // wet-and-dirty diaper is one diaper, not one wet plus one dirty.
+      diaperWetOnly: 0,
+      diaperDirtyOnly: 0,
+      diaperBoth: 0,
       diaperCount: 0,
     };
   }
@@ -1338,6 +1343,9 @@ router.get('/stats', (req, res) => {
     buckets[k].diaperCount += 1;
     if (r.wet) buckets[k].diaperWet += 1;
     if (r.dirty) buckets[k].diaperDirty += 1;
+    if (r.wet && r.dirty) buckets[k].diaperBoth += 1;
+    else if (r.wet) buckets[k].diaperWetOnly += 1;
+    else if (r.dirty) buckets[k].diaperDirtyOnly += 1;
   }
 
   const daily = Object.values(buckets);

@@ -808,6 +808,13 @@ textarea:focus,
   color: var(--c-muted);
   margin: 0 -2px;
 }
+/* "hr" / "min" labels beside the elapsed-time dropdowns */
+.time-unit {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-muted);
+  margin: 0 -1px;
+}
 
 textarea {
   resize: vertical;

@@ -41,6 +41,7 @@ const COLORS = {
   diaper: 'var(--c-diaper)',
   wet: 'var(--c-wet)',
   dirty: 'var(--c-dirty)',
+  diaperBoth: 'var(--c-both)',
   left: 'var(--c-breast)',
   right: 'var(--c-pump)',
   weight: 'var(--c-measure)',
@@ -480,8 +481,11 @@ function BabyDashboard() {
                 <YAxis allowDecimals={false} tick={axisTick} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
-                <Bar dataKey="diaperWet" name="Wet" stackId="d" fill={COLORS.wet} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="diaperDirty" name="Dirty" stackId="d" fill={COLORS.dirty} radius={[6, 6, 0, 0]} />
+                {/* Stacked on mutually exclusive buckets: a wet-and-dirty diaper is
+                    one diaper, so the stack height is the day's diaper count. */}
+                <Bar dataKey="diaperWetOnly" name="Wet" stackId="d" fill={COLORS.wet} radius={[0, 0, 0, 0]} />
+                <Bar dataKey="diaperDirtyOnly" name="Dirty" stackId="d" fill={COLORS.dirty} radius={[0, 0, 0, 0]} />
+                <Bar dataKey="diaperBoth" name="Wet & dirty" stackId="d" fill={COLORS.diaperBoth} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
