@@ -552,7 +552,7 @@ export default function Track() {
                       onPause={pauseNap}
                       onResume={resumeNap}
                       onStop={stopNap}
-                      pausedAt={pausedNap?.id === last.sleep?.id ? pausedNap.pausedAt : null}
+                      pausedAt={pausedNap && last.sleep && pausedNap.id === last.sleep.id ? pausedNap.pausedAt : null}
                       busy={napBusy}
                       drag={drag}
                       reordering={showHandles}
