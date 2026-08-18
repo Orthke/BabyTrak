@@ -169,6 +169,7 @@ const BABY_KINDS = OPTIONS.filter((o) => !o.caregiverOnly).map((o) => o.kind);
 // follow the OPTIONS order. The user can reorder them and we persist that.
 const DEFAULT_ORDER = ['sleep', ...BABY_KINDS];
 const ORDER_KEY = 'babytrak.trackOrder';
+const PAUSED_NAP_KEY = 'babytrak.pausedNapByBaby';
 // Cards the user has hidden, scoped by subject type: { baby: [...], caregiver:
 // [...] } so hiding a card for babies doesn't hide it for caregivers (and vice
 // versa). The history/timeline filter reads the same key for the same scope.
@@ -201,6 +202,29 @@ function loadHiddenMap() {
 function loadHidden(scope) {
   const arr = loadHiddenMap()[scope];
   return new Set(Array.isArray(arr) ? arr.filter((k) => typeof k === 'string') : []);
+}
+
+function loadPausedNapMap() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PAUSED_NAP_KEY) || 'null');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadPausedNap(babyId) {
+  if (!Number.isInteger(babyId) || babyId <= 0) return null;
+  const paused = loadPausedNapMap()[babyId];
+  return paused && typeof paused === 'object' ? paused : null;
+}
+
+function savePausedNap(babyId, pausedNap) {
+  if (!Number.isInteger(babyId) || babyId <= 0) return;
+  const map = loadPausedNapMap();
+  if (pausedNap) map[babyId] = pausedNap;
+  else delete map[babyId];
+  localStorage.setItem(PAUSED_NAP_KEY, JSON.stringify(map));
 }
 
 // Wraps a track card so it can be dragged to reorder via its grip handle.
@@ -385,6 +409,20 @@ export default function Track() {
   const [napAgo, setNapAgo] = useState(0); // minutes since the running nap began
   const [sleepForm, setSleepForm] = useState(null); // null | { entry } (entry null = manual create)
   const [napBusy, setNapBusy] = useState(false);
+  const [pausedNap, setPausedNap] = useState(() => loadPausedNap(selectedId));
+
+  useEffect(() => {
+    setPausedNap(isCaregiver ? null : loadPausedNap(selectedId));
+  }, [isCaregiver, selectedId]);
+
+  useEffect(() => {
+    const activeNap = last.sleep && !last.sleep.end_time ? last.sleep : null;
+    if (!pausedNap) return;
+    if (!activeNap || activeNap.id !== pausedNap.id) {
+      setPausedNap(null);
+      savePausedNap(selectedId, null);
+    }
+  }, [last.sleep, pausedNap, selectedId]);
 
   // Starts a live (no end_time) nap. `minutesAgo` back-dates the start for a nap
   // that's already been going a while, so the card's timer picks up mid-nap.
@@ -394,6 +432,8 @@ export default function Track() {
       const payload =
         minutesAgo > 0 ? { start_time: new Date(serverNow() - minutesAgo * 60000).toISOString() } : {};
       await api.createSleep(payload, selectedId);
+      setPausedNap(null);
+      savePausedNap(selectedId, null);
       setNapChoice(null);
       setNapAgo(0);
       notify(minutesAgo > 0 ? `Nap started ${formatMinutes(minutesAgo * 60)} ago` : 'Nap started');
@@ -410,15 +450,51 @@ export default function Track() {
   const stopNap = async () => {
     const nap = last.sleep;
     if (!nap || nap.end_time) return;
+    const pausedAt = pausedNap?.id === nap.id ? pausedNap.pausedAt : null;
     setNapBusy(true);
     try {
       const stopped = await api.updateSleep(nap.id, {
         start_time: nap.start_time,
-        end_time: new Date(serverNow()).toISOString(),
+        end_time: pausedAt ?? new Date(serverNow()).toISOString(),
         comment: nap.comment ?? null,
       });
+      setPausedNap(null);
+      savePausedNap(selectedId, null);
       await loadLast();
       setSleepForm({ entry: stopped });
+    } catch (e) {
+      notify('Error: ' + e.message);
+    } finally {
+      setNapBusy(false);
+    }
+  };
+
+  const pauseNap = () => {
+    const nap = last.sleep;
+    if (!nap || nap.end_time) return;
+    const paused = { id: nap.id, pausedAt: new Date(serverNow()).toISOString() };
+    setPausedNap(paused);
+    savePausedNap(selectedId, paused);
+    notify('Nap paused');
+  };
+
+  const resumeNap = async () => {
+    const nap = last.sleep;
+    if (!nap || nap.end_time || !pausedNap || pausedNap.id !== nap.id) return;
+    const pausedMs = Date.parse(pausedNap.pausedAt);
+    const startMs = Date.parse(nap.start_time);
+    if (!Number.isFinite(pausedMs) || !Number.isFinite(startMs)) return;
+    setNapBusy(true);
+    try {
+      await api.updateSleep(nap.id, {
+        start_time: new Date(startMs + (serverNow() - pausedMs)).toISOString(),
+        end_time: null,
+        comment: nap.comment ?? null,
+      });
+      setPausedNap(null);
+      savePausedNap(selectedId, null);
+      await loadLast();
+      notify('Nap resumed');
     } catch (e) {
       notify('Error: ' + e.message);
     } finally {
@@ -473,7 +549,10 @@ export default function Track() {
                         setNapAgo(0);
                         setNapChoice('choose');
                       }}
+                      onPause={pauseNap}
+                      onResume={resumeNap}
                       onStop={stopNap}
+                      pausedAt={pausedNap?.id === last.sleep?.id ? pausedNap.pausedAt : null}
                       busy={napBusy}
                       drag={drag}
                       reordering={showHandles}
@@ -693,6 +772,10 @@ export default function Track() {
           <SleepForm
             babyId={selectedId}
             entry={sleepForm.entry}
+            onDiscarded={() => {
+              setSleepForm(null);
+              loadLast();
+            }}
             notify={notify}
             onCancel={() => setSleepForm(null)}
             onSaved={() => {

@@ -6,6 +6,7 @@ import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration, convertVol
 import { Stopwatch, Pencil } from '../icons.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
@@ -16,9 +17,22 @@ export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
   const [seconds, setSeconds] = useState(entry?.duration_seconds ?? 0);
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
+  const [leftBottleAmount, setLeftBottleAmount] = useState('');
+  const [rightBottleAmount, setRightBottleAmount] = useState('');
   const [unit, setUnit] = useState(entry?.unit ?? defaultVolumeUnit); // 'ml' | 'oz'
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
+
+  const parseVolume = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
+  const updateBottleCalculator = (nextLeft, nextRight) => {
+    if (nextLeft === '' && nextRight === '') return;
+    setAmount(String(parseVolume(nextLeft) + parseVolume(nextRight)));
+  };
 
   const updateSeconds = useCallback((updater) => {
     setSeconds((prev) => (typeof updater === 'function' ? updater(prev) : updater));
@@ -36,14 +50,31 @@ export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
     if (amount !== '' && Number.isFinite(Number(amount))) {
       setAmount(String(convertVolume(Number(amount), unit, next)));
     }
+    if (leftBottleAmount !== '' && Number.isFinite(Number(leftBottleAmount))) {
+      setLeftBottleAmount(String(convertVolume(Number(leftBottleAmount), unit, next)));
+    }
+    if (rightBottleAmount !== '' && Number.isFinite(Number(rightBottleAmount))) {
+      setRightBottleAmount(String(convertVolume(Number(rightBottleAmount), unit, next)));
+    }
     setUnit(next);
   };
 
+  const onLeftBottleAmountChange = (value) => {
+    setLeftBottleAmount(value);
+    updateBottleCalculator(value, rightBottleAmount);
+  };
+
+  const onRightBottleAmountChange = (value) => {
+    setRightBottleAmount(value);
+    updateBottleCalculator(leftBottleAmount, value);
+  };
+
   const save = async () => {
+    const startIso = fromLocalInput(start);
+    const endIso = new Date(new Date(startIso).getTime() + seconds * 1000).toISOString();
+    if (!(await requestFutureConfirm([startIso, endIso]))) return;
     setSaving(true);
     try {
-      const startIso = fromLocalInput(start);
-      const endIso = new Date(new Date(startIso).getTime() + seconds * 1000).toISOString();
       const payload = {
         start_time: startIso,
         end_time: endIso,
@@ -133,6 +164,30 @@ export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
             </button>
           </div>
         </div>
+        <div className="row" style={{ marginTop: 8 }}>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            inputMode="decimal"
+            value={leftBottleAmount}
+            placeholder="Bottle L"
+            aria-label="Bottle left volume"
+            onChange={(e) => onLeftBottleAmountChange(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            inputMode="decimal"
+            value={rightBottleAmount}
+            placeholder="Bottle R"
+            aria-label="Bottle right volume"
+            onChange={(e) => onRightBottleAmountChange(e.target.value)}
+            style={{ flex: 1 }}
+          />
+        </div>
       </div>
 
       <div className="field">
@@ -146,6 +201,7 @@ export default function PumpForm({ onSaved, onCancel, notify, babyId, entry }) {
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

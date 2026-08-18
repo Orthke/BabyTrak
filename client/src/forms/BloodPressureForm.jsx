@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 export default function BloodPressureForm({ onSaved, onCancel, notify, babyId, caregiverId, entry }) {
   const isEdit = !!entry;
@@ -13,6 +14,7 @@ export default function BloodPressureForm({ onSaved, onCancel, notify, babyId, c
   const [pulse, setPulse] = useState(entry?.pulse != null ? String(entry.pulse) : '');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   const requestClose = useRequestClose();
   const sig = [time, systolic, diastolic, pulse, comment].join('|');
@@ -26,10 +28,12 @@ export default function BloodPressureForm({ onSaved, onCancel, notify, babyId, c
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        time: fromLocalInput(time),
+        time: timeIso,
         systolic: Number(systolic),
         diastolic: Number(diastolic),
         pulse: pulse === '' ? null : Number(pulse),
@@ -110,6 +114,7 @@ export default function BloodPressureForm({ onSaved, onCancel, notify, babyId, c
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

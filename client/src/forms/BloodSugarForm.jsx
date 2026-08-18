@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput, GLUCOSE_CONTEXTS, MGDL_PER_MMOL } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const UNITS = ['mg/dL', 'mmol/L'];
 
@@ -15,6 +16,7 @@ export default function BloodSugarForm({ onSaved, onCancel, notify, babyId, care
   const [context, setContext] = useState(entry?.context ?? 'random');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   // Switching units converts the entered value so it stays the same reading.
   const changeUnit = (next) => {
@@ -35,10 +37,12 @@ export default function BloodSugarForm({ onSaved, onCancel, notify, babyId, care
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        time: fromLocalInput(time),
+        time: timeIso,
         value: Number(value),
         unit,
         context,
@@ -111,6 +115,7 @@ export default function BloodSugarForm({ onSaved, onCancel, notify, babyId, care
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

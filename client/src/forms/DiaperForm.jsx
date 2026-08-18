@@ -4,6 +4,7 @@ import { toLocalInput, fromLocalInput, nowLocalInput, STOOL_AMOUNTS, STOOL_COLOR
 import { CONTENT_ICONS, Check } from '../icons.jsx';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const WetIcon = CONTENT_ICONS.wet;
 const DirtyIcon = CONTENT_ICONS.dirty;
@@ -20,16 +21,19 @@ export default function DiaperForm({ onSaved, onCancel, notify, babyId, entry })
   const [saving, setSaving] = useState(false);
 
   const requestClose = useRequestClose();
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
   // Dirty = changed from how the form opened (so editing without changes won't prompt).
   const sig = [time, wet, dirty, amount, color, texture, comment].join('|');
   const initialSig = useRef(sig);
   useDirty(sig !== initialSig.current);
 
   const save = async () => {
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        time: fromLocalInput(time),
+        time: timeIso,
         wet,
         dirty,
         stool_amount: dirty ? amount || null : null,
@@ -134,6 +138,7 @@ export default function DiaperForm({ onSaved, onCancel, notify, babyId, entry })
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   daysBetween,
 } from '../utils.js';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 // Logs one end of a period: its start, or — days later — its end. Which one is
 // decided by `mode` ('start' | 'end') when the form is opened from the Track
@@ -31,6 +32,7 @@ export default function PeriodForm({ onSaved, onCancel, notify, caregiverId, ent
   const [half, setHalf] = useState(recordedHalf ?? currentHalf());
   const [comment, setComment] = useState((isEnd ? entry?.end_comment : entry?.start_comment) ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   const iso = isoFromDayHalf(day, half);
   // The other end of the same period, which this one can't cross. Both are
@@ -49,6 +51,7 @@ export default function PeriodForm({ onSaved, onCancel, notify, caregiverId, ent
 
   const save = async () => {
     if (!valid) return;
+    if (!(await requestFutureConfirm([iso]))) return;
     setSaving(true);
     try {
       const note = comment.trim() || null;
@@ -114,6 +117,7 @@ export default function PeriodForm({ onSaved, onCancel, notify, caregiverId, ent
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

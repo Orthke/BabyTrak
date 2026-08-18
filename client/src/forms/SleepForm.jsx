@@ -3,8 +3,10 @@ import DateTimeField from '../components/DateTimeField.jsx';
 import { api, serverNow } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput, formatDuration } from '../utils.js';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
+import { Trash3 } from '../icons.jsx';
 
-export default function SleepForm({ onSaved, onCancel, notify, babyId, entry }) {
+export default function SleepForm({ onSaved, onCancel, onDiscarded, notify, babyId, entry }) {
   const isEdit = !!entry;
   const [start, setStart] = useState(entry ? toLocalInput(entry.start_time) : nowLocalInput());
   // An in-progress nap (no end_time yet) defaults its end to now so the duration
@@ -14,23 +16,40 @@ export default function SleepForm({ onSaved, onCancel, notify, babyId, entry }) 
   );
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   // Duration is always derived from the two timestamps.
   const seconds = Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000));
   const endBeforeStart = new Date(end).getTime() <= new Date(start).getTime();
 
   const save = async () => {
+    const startIso = fromLocalInput(start);
+    const endIso = fromLocalInput(end);
+    if (!(await requestFutureConfirm([startIso, endIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        start_time: fromLocalInput(start),
-        end_time: fromLocalInput(end),
+        start_time: startIso,
+        end_time: endIso,
         comment: comment.trim() || null,
       };
       if (isEdit) await api.updateSleep(entry.id, payload);
       else await api.createSleep(payload, babyId);
       notify?.(isEdit ? 'Sleep updated' : 'Sleep saved');
       onSaved?.();
+    } catch (e) {
+      notify?.('Error: ' + e.message);
+      setSaving(false);
+    }
+  };
+
+  const discard = async () => {
+    if (!isEdit || !onDiscarded) return;
+    setSaving(true);
+    try {
+      await api.deleteSleep(entry.id);
+      notify?.('Nap discarded');
+      onDiscarded();
     } catch (e) {
       notify?.('Error: ' + e.message);
       setSaving(false);
@@ -74,6 +93,12 @@ export default function SleepForm({ onSaved, onCancel, notify, babyId, entry }) 
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {isEdit && onDiscarded && (
+        <button className="btn btn-danger-solid" disabled={saving} onClick={discard}>
+          <Trash3 size={15} /> Discard nap
+        </button>
+      )}
+      {futureConfirm}
     </div>
   );
 }

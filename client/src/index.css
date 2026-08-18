@@ -716,7 +716,33 @@ svg {
   cursor: pointer;
 }
 
+.sleep-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-sleep-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--c-sleep) 28%, var(--c-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-sleep) 12%, var(--c-card));
+  color: var(--c-sleep);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
 .btn-stop-nap:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn-sleep-secondary:disabled {
   opacity: 0.6;
   cursor: default;
 }

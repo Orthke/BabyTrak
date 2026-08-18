@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatDuration, formatMinutes, formatTime, timeAgo, sleepSeconds } from '../utils.js';
 import { serverNow } from '../api.js';
-import { KIND_ICONS, PlayFill, StopFill } from '../icons.jsx';
+import { KIND_ICONS, PauseFill, PlayFill, StopFill } from '../icons.jsx';
 import DragHandle from './DragHandle.jsx';
 import HideToggle from './HideToggle.jsx';
 
@@ -16,16 +16,18 @@ function tile() {
 // timeline): if it has no end_time the baby is currently napping and the elapsed
 // time ticks up from start_time; otherwise it shows the last completed nap.
 // `drag` carries the dnd-kit sortable props so the card can be reordered.
-export default function SleepCard({ sleep, onStart, onStop, busy, drag, reordering, hidden, onToggleHide }) {
+export default function SleepCard({ sleep, onStart, onPause, onResume, onStop, pausedAt, busy, drag, reordering, hidden, onToggleHide }) {
   const active = !!sleep && !sleep.end_time;
+  const paused = active && !!pausedAt;
+  const nowMs = paused ? Date.parse(pausedAt) : serverNow();
 
   // Re-render once a second only while a nap is running, to advance the clock.
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (!active) return;
+    if (!active || paused) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, [active]);
+  }, [active, paused]);
 
   const guard = (fn) => (drag ? drag.guardClick(fn) : fn);
   const isDragging = drag?.isDragging;
@@ -48,15 +50,26 @@ export default function SleepCard({ sleep, onStart, onStop, busy, drag, reorderi
           <MoonIcon size={24} />
         </span>
         <span className="track-main">
-          <div className="label">Napping…</div>
-          <div className="sub">Since {formatTime(sleep.start_time)}</div>
+          <div className="label">{paused ? 'Nap paused' : 'Napping…'}</div>
+          <div className="sub">{paused ? `Paused at ${formatTime(pausedAt)}` : `Since ${formatTime(sleep.start_time)}`}</div>
         </span>
         {!reordering && (
           <span className="track-last">
-            <div className="sleep-elapsed">{formatDuration(sleepSeconds(sleep, serverNow()))}</div>
-            <button type="button" className="btn-stop-nap" onClick={guard(onStop)} disabled={busy}>
-              <StopFill size={14} /> Stop nap
-            </button>
+            <div className="sleep-elapsed">{formatDuration(sleepSeconds(sleep, nowMs))}</div>
+            <div className="sleep-actions">
+              {paused ? (
+                <button type="button" className="btn-sleep-secondary" onClick={guard(onResume)} disabled={busy}>
+                  <PlayFill size={14} /> Resume nap
+                </button>
+              ) : (
+                <button type="button" className="btn-sleep-secondary" onClick={guard(onPause)} disabled={busy}>
+                  <PauseFill size={14} /> Pause nap
+                </button>
+              )}
+              <button type="button" className="btn-stop-nap" onClick={guard(onStop)} disabled={busy}>
+                <StopFill size={14} /> Stop nap
+              </button>
+            </div>
           </span>
         )}
         {controls}

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput, TEMP_METHODS } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const UNITS = ['F', 'C'];
 
@@ -18,6 +19,7 @@ export default function TemperatureForm({ onSaved, onCancel, notify, babyId, car
   const [method, setMethod] = useState(entry?.method ?? 'oral');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   // Switching units converts the entered value so it stays the same reading.
   const changeUnit = (next) => {
@@ -38,10 +40,12 @@ export default function TemperatureForm({ onSaved, onCancel, notify, babyId, car
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        time: fromLocalInput(time),
+        time: timeIso,
         temp: Number(temp),
         unit,
         method,
@@ -114,6 +118,7 @@ export default function TemperatureForm({ onSaved, onCancel, notify, babyId, car
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

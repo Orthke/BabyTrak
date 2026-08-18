@@ -3,8 +3,7 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput, SYMPTOM_SEVERITIES } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
-
-const CUSTOM = '__custom__';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 // A symptom logged at a moment in time. Which period it belongs to is worked out
 // server-side from the timestamp, so there's nothing to pick here — logging one
@@ -12,55 +11,41 @@ const CUSTOM = '__custom__';
 export default function SymptomForm({ onSaved, onCancel, notify, caregiverId, entry }) {
   const isEdit = !!entry;
   const [types, setTypes] = useState([]); // catalog
-  const [selected, setSelected] = useState(''); // symptom type id, or CUSTOM
-  const [customName, setCustomName] = useState(isEdit ? entry.name : '');
+  const [name, setName] = useState(entry?.name ?? '');
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
   const [severity, setSeverity] = useState(entry?.severity ?? 'mild');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
-  const [ready, setReady] = useState(!isEdit); // create mode is ready immediately
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
+  const suggestionsId = 'symptom-suggestions';
 
-  // Load the dropdown catalog, then (in edit) match the saved name to an entry.
   useEffect(() => {
     api
       .listSymptomTypes()
-      .then((list) => {
-        setTypes(list);
-        if (isEdit) {
-          const match = list.find((t) => t.name.toLowerCase() === entry.name.toLowerCase());
-          setSelected(match ? String(match.id) : CUSTOM); // unknown name → treat as custom
-          setReady(true);
-        }
-      })
+      .then((list) => setTypes(list))
       .catch((e) => notify?.('Error: ' + e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isCustom = selected === CUSTOM;
-  const resolvedName = isCustom ? customName.trim() : types.find((t) => String(t.id) === selected)?.name ?? '';
-
   const requestClose = useRequestClose();
-  // Dirty = changed from how the form opened. Captured once the catalog has
-  // loaded so the async name→id match doesn't register as an edit.
-  const sig = [resolvedName, severity, comment, time].join('|');
-  const initialSig = useRef(null);
-  useEffect(() => {
-    if (ready && initialSig.current === null) initialSig.current = sig;
-  }, [ready, sig]);
-  useDirty(ready && initialSig.current !== null && sig !== initialSig.current);
+  const sig = [name.trim(), severity, comment, time].join('|');
+  const initialSig = useRef(sig);
+  useDirty(sig !== initialSig.current);
 
+  const resolvedName = name.trim();
   const valid = resolvedName !== '';
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
-      // A new custom symptom is persisted to the catalog so it's reusable.
-      if (isCustom) await api.createSymptomType({ name: resolvedName });
+      await api.createSymptomType({ name: resolvedName });
       const payload = {
         name: resolvedName,
         severity,
-        time: fromLocalInput(time),
+        time: timeIso,
         comment: comment.trim() || null,
       };
       if (isEdit) await api.updatePeriodSymptom(entry.id, payload);
@@ -77,31 +62,20 @@ export default function SymptomForm({ onSaved, onCancel, notify, caregiverId, en
     <div>
       <div className="field">
         <label>Symptom</label>
-        <select className="select" value={selected} onChange={(e) => setSelected(e.target.value)}>
-          <option value="" disabled>
-            Choose a symptom…
-          </option>
+        <input
+          type="text"
+          list={suggestionsId}
+          value={name}
+          placeholder="e.g. Joint aches"
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <datalist id={suggestionsId}>
           {types.map((t) => (
-            <option key={t.id} value={String(t.id)}>
-              {t.name}
-            </option>
+            <option key={t.id} value={t.name} />
           ))}
-          <option value={CUSTOM}>+ Add custom symptom…</option>
-        </select>
+        </datalist>
       </div>
-
-      {isCustom && (
-        <div className="field">
-          <label>Custom symptom name</label>
-          <input
-            type="text"
-            value={customName}
-            placeholder="e.g. Joint aches"
-            onChange={(e) => setCustomName(e.target.value)}
-            autoFocus
-          />
-        </div>
-      )}
 
       <div className="field">
         <label>Time</label>
@@ -130,6 +104,7 @@ export default function SymptomForm({ onSaved, onCancel, notify, caregiverId, en
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

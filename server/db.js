@@ -75,8 +75,8 @@ db.exec(`
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- Catalog of medications shown in the dropdown. Seeded with common ones;
-  -- the user can append custom entries (is_custom = 1) that persist for reuse.
+  -- Catalog of medication names the user has entered before, kept only for
+  -- reuse suggestions in the form.
   -- Name is unique within a category (see idx_med_name_cat) rather than globally,
   -- so the same drug name can exist in both the baby and caregiver dropdowns.
   CREATE TABLE IF NOT EXISTS medications (
@@ -103,9 +103,8 @@ db.exec(`
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- Catalog of milestone titles shown in the dropdown. Seeded with common infant
-  -- developmental milestones; the user can append custom entries (is_custom = 1)
-  -- that persist for reuse, mirroring the medications catalog.
+  -- Catalog of milestone titles the user has entered before, kept only for
+  -- reuse suggestions in the form.
   CREATE TABLE IF NOT EXISTS milestone_types (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT NOT NULL,
@@ -222,9 +221,8 @@ db.exec(`
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- Catalog of symptom names shown in the dropdown. Seeded with the common ones;
-  -- the user can append custom entries (is_custom = 1) that persist for reuse,
-  -- mirroring the medications and milestones catalogs.
+  -- Catalog of symptom names the user has entered before, kept only for reuse
+  -- suggestions in the form.
   CREATE TABLE IF NOT EXISTS symptom_types (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT NOT NULL,
@@ -328,107 +326,74 @@ if (tableExists('breast_feedings') || tableExists('bottle_feedings')) {
   })();
 }
 
-// Seed the medication catalog once with common infant medications. Names are
-// generic + common brand so they're recognizable; default_unit pre-selects the
-// usual form. Users can still add their own and change units per dose.
-const COMMON_MEDS = [
-  ['Vitamin D drops', 'drops'],
-  ['Acetaminophen (Infant Tylenol)', 'ml'],
-  ['Ibuprofen (Infant Motrin)', 'ml'],
-  ['Gripe water', 'ml'],
-  ['Simethicone (gas drops)', 'drops'],
-  ['Probiotic drops', 'drops'],
-  ['Saline nasal drops', 'drops'],
-  ['Multivitamin with Iron (Poly-Vi-Sol)', 'ml'],
-  ['Famotidine (reflux)', 'ml'],
-  ['Amoxicillin', 'ml'],
-  ['Vitamin C drops', 'drops'],
-  ['Teething tablets', 'pills'],
-];
-// Adult / caregiver medications. Tylenol and ibuprofen lead the list; the rest
-// cover common over-the-counter and postpartum supplements. Users can add their
-// own custom caregiver meds too.
-const CAREGIVER_MEDS = [
-  ['Tylenol (Acetaminophen)', 'pills'],
-  ['Ibuprofen (Advil / Motrin)', 'pills'],
-  ['Aspirin', 'pills'],
-  ['Naproxen (Aleve)', 'pills'],
-  ['Prenatal vitamin', 'pills'],
-  ['Multivitamin', 'pills'],
-  ['Vitamin D', 'pills'],
-  ['Iron supplement', 'pills'],
-  ['Stool softener (Colace)', 'pills'],
-  ['Antacid (Tums)', 'pills'],
-  ['Allergy (Benadryl)', 'pills'],
-  ['Allergy (Claritin)', 'pills'],
-];
+// Older builds shipped curated defaults in these catalogs. Remove any entries
+// the user never actually logged, and keep used ones by converting them to the
+// same custom rows newer builds create.
+db.transaction(() => {
+  db.prepare(`
+    DELETE FROM medications
+    WHERE is_custom = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM med_doses d
+        WHERE d.name = medications.name COLLATE NOCASE
+          AND ((medications.category = 'baby' AND d.baby_id IS NOT NULL)
+            OR (medications.category = 'caregiver' AND d.caregiver_id IS NOT NULL))
+      )
+  `).run();
+  db.prepare(`
+    UPDATE medications
+    SET is_custom = 1
+    WHERE is_custom = 0
+      AND EXISTS (
+        SELECT 1
+        FROM med_doses d
+        WHERE d.name = medications.name COLLATE NOCASE
+          AND ((medications.category = 'baby' AND d.baby_id IS NOT NULL)
+            OR (medications.category = 'caregiver' AND d.caregiver_id IS NOT NULL))
+      )
+  `).run();
 
-const insMed = db.prepare('INSERT INTO medications (name, default_unit, category, is_custom) VALUES (?, ?, ?, 0)');
-// Seed each catalog independently so an existing baby-only database still picks
-// up the caregiver list when this version first runs.
-if (db.prepare("SELECT COUNT(*) c FROM medications WHERE category = 'baby'").get().c === 0) {
-  db.transaction(() => COMMON_MEDS.forEach(([name, unit]) => insMed.run(name, unit, 'baby')))();
-}
-if (db.prepare("SELECT COUNT(*) c FROM medications WHERE category = 'caregiver'").get().c === 0) {
-  db.transaction(() => CAREGIVER_MEDS.forEach(([name, unit]) => insMed.run(name, unit, 'caregiver')))();
-}
+  db.prepare(`
+    DELETE FROM milestone_types
+    WHERE is_custom = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM milestones m
+        WHERE m.name = milestone_types.name COLLATE NOCASE
+      )
+  `).run();
+  db.prepare(`
+    UPDATE milestone_types
+    SET is_custom = 1
+    WHERE is_custom = 0
+      AND EXISTS (
+        SELECT 1
+        FROM milestones m
+        WHERE m.name = milestone_types.name COLLATE NOCASE
+      )
+  `).run();
 
-// Common infant/baby milestones, roughly in the order they tend to happen. The
-// user can add their own (is_custom = 1) which persist for reuse.
-const INFANT_MILESTONES = [
-  'First smile',
-  'Holds head up',
-  'Responds to name',
-  'First laugh',
-  'Rolls over',
-  'Sits without support',
-  'First tooth',
-  'Babbles',
-  'First solid food',
-  'Crawls',
-  'Pulls to stand',
-  'Claps hands',
-  'Waves bye-bye',
-  'First words',
-  'Stands alone',
-  'First steps',
-  'Sleeps through the night',
-  'First haircut',
-];
-const insMilestoneType = db.prepare('INSERT INTO milestone_types (name, is_custom) VALUES (?, 0)');
-if (db.prepare('SELECT COUNT(*) c FROM milestone_types').get().c === 0) {
-  db.transaction(() => INFANT_MILESTONES.forEach((name) => insMilestoneType.run(name)))();
-}
-
-// Symptoms commonly logged during a menstrual period, most frequent first so the
-// usual ones lead the dropdown. The user can add their own (is_custom = 1) which
-// persist for reuse.
-const PERIOD_SYMPTOMS = [
-  'Cramps',
-  'Bloating',
-  'Fatigue',
-  'Headache',
-  'Back pain',
-  'Mood swings',
-  'Breast tenderness',
-  'Nausea',
-  'Cravings',
-  'Acne',
-  'Irritability',
-  'Anxiety',
-  'Dizziness',
-  'Insomnia',
-  'Diarrhea',
-  'Constipation',
-  'Hot flashes',
-  'Heavy flow',
-  'Spotting',
-  'Clotting',
-];
-const insSymptomType = db.prepare('INSERT INTO symptom_types (name, is_custom) VALUES (?, 0)');
-if (db.prepare('SELECT COUNT(*) c FROM symptom_types').get().c === 0) {
-  db.transaction(() => PERIOD_SYMPTOMS.forEach((name) => insSymptomType.run(name)))();
-}
+  db.prepare(`
+    DELETE FROM symptom_types
+    WHERE is_custom = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM period_symptoms s
+        WHERE s.name = symptom_types.name COLLATE NOCASE
+      )
+  `).run();
+  db.prepare(`
+    UPDATE symptom_types
+    SET is_custom = 1
+    WHERE is_custom = 0
+      AND EXISTS (
+        SELECT 1
+        FROM period_symptoms s
+        WHERE s.name = symptom_types.name COLLATE NOCASE
+      )
+  `).run();
+})();
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feeding_baby ON feedings(baby_id);

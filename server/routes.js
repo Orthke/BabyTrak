@@ -313,21 +313,19 @@ router.delete('/pumps/:id', (req, res) => {
 });
 
 /* --------------------------- medications --------------------------- */
-// Catalog of medication names for the dropdown (presets + user-added custom).
+// Catalog of medication names the user has entered before.
 
 const MED_UNITS = ['pills', 'mg', 'drops', 'ml'];
 const medUnit = (u) => (MED_UNITS.includes(u) ? u : 'ml');
 const medCategory = (c) => (c === 'caregiver' ? 'caregiver' : 'baby');
 
-// Optional ?category=baby|caregiver filters which dropdown the catalog feeds.
-// Presets are kept in their seeded (curated) order — so the most common meds
-// like Tylenol and Ibuprofen lead — with user-added customs sorted after.
+// Optional ?category=baby|caregiver filters which suggestion list the catalog feeds.
 router.get('/medications', (req, res) => {
   const { category } = req.query;
   if (category === 'baby' || category === 'caregiver') {
-    return ok(res, db.prepare('SELECT * FROM medications WHERE category = ? ORDER BY is_custom ASC, id ASC').all(category));
+    return ok(res, db.prepare('SELECT * FROM medications WHERE category = ? ORDER BY name COLLATE NOCASE ASC, id ASC').all(category));
   }
-  ok(res, db.prepare('SELECT * FROM medications ORDER BY is_custom ASC, id ASC').all());
+  ok(res, db.prepare('SELECT * FROM medications ORDER BY name COLLATE NOCASE ASC, id ASC').all());
 });
 
 router.post('/medications', (req, res) => {
@@ -347,11 +345,10 @@ router.post('/medications', (req, res) => {
   ok(res, db.prepare('SELECT * FROM medications WHERE id = ?').get(info.lastInsertRowid));
 });
 
-// Remove a custom medication from the catalog (presets are protected).
+// Remove a remembered medication from the catalog.
 router.delete('/medications/:id', (req, res) => {
   const med = db.prepare('SELECT * FROM medications WHERE id = ?').get(req.params.id);
   if (!med) return notFound(res);
-  if (!med.is_custom) return badRequest(res, 'Built-in medications cannot be removed');
   db.prepare('DELETE FROM medications WHERE id = ?').run(req.params.id);
   ok(res, { deleted: true });
 });
@@ -420,12 +417,10 @@ router.delete('/med-doses/:id', (req, res) => {
 });
 
 /* -------------------------- milestone types ------------------------ */
-// Catalog of milestone titles for the dropdown (presets + user-added custom).
+// Catalog of milestone titles the user has entered before.
 
-// Presets are kept in their seeded (developmental) order, with user-added
-// customs sorted after.
 router.get('/milestone-types', (req, res) => {
-  ok(res, db.prepare('SELECT * FROM milestone_types ORDER BY is_custom ASC, id ASC').all());
+  ok(res, db.prepare('SELECT * FROM milestone_types ORDER BY name COLLATE NOCASE ASC, id ASC').all());
 });
 
 router.post('/milestone-types', (req, res) => {
@@ -439,11 +434,10 @@ router.post('/milestone-types', (req, res) => {
   ok(res, db.prepare('SELECT * FROM milestone_types WHERE id = ?').get(info.lastInsertRowid));
 });
 
-// Remove a custom milestone from the catalog (presets are protected).
+// Remove a remembered milestone from the catalog.
 router.delete('/milestone-types/:id', (req, res) => {
   const type = db.prepare('SELECT * FROM milestone_types WHERE id = ?').get(req.params.id);
   if (!type) return notFound(res);
-  if (!type.is_custom) return badRequest(res, 'Built-in milestones cannot be removed');
   db.prepare('DELETE FROM milestone_types WHERE id = ?').run(req.params.id);
   ok(res, { deleted: true });
 });
@@ -948,11 +942,10 @@ router.delete('/periods/:id', (req, res) => {
 });
 
 /* --------------------------- symptom types ------------------------- */
-// Catalog of symptom names for the dropdown (presets + user-added custom).
+// Catalog of symptom names the user has entered before.
 
-// Presets keep their seeded (most-common-first) order, with customs sorted after.
 router.get('/symptom-types', (req, res) => {
-  ok(res, db.prepare('SELECT * FROM symptom_types ORDER BY is_custom ASC, id ASC').all());
+  ok(res, db.prepare('SELECT * FROM symptom_types ORDER BY name COLLATE NOCASE ASC, id ASC').all());
 });
 
 router.post('/symptom-types', (req, res) => {
@@ -966,11 +959,10 @@ router.post('/symptom-types', (req, res) => {
   ok(res, db.prepare('SELECT * FROM symptom_types WHERE id = ?').get(info.lastInsertRowid));
 });
 
-// Remove a custom symptom from the catalog (presets are protected).
+// Remove a remembered symptom from the catalog.
 router.delete('/symptom-types/:id', (req, res) => {
   const type = db.prepare('SELECT * FROM symptom_types WHERE id = ?').get(req.params.id);
   if (!type) return notFound(res);
-  if (!type.is_custom) return badRequest(res, 'Built-in symptoms cannot be removed');
   db.prepare('DELETE FROM symptom_types WHERE id = ?').run(req.params.id);
   ok(res, { deleted: true });
 });

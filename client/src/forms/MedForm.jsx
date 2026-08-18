@@ -3,78 +3,57 @@ import { api } from '../api.js';
 import { toLocalInput, fromLocalInput, nowLocalInput } from '../utils.js';
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const UNITS = ['pills', 'mg', 'drops', 'ml'];
-const CUSTOM = '__custom__';
-
 export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId, entry }) {
   const isEdit = !!entry;
   const forCaregiver = !!caregiverId;
   const category = forCaregiver ? 'caregiver' : 'baby';
   const [meds, setMeds] = useState([]); // catalog
-  const [selected, setSelected] = useState(''); // medication id, or CUSTOM
-  const [customName, setCustomName] = useState(isEdit ? entry.name : '');
+  const [name, setName] = useState(entry?.name ?? '');
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
   const [unit, setUnit] = useState(entry?.unit ?? (forCaregiver ? 'pills' : 'ml'));
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
-  const [ready, setReady] = useState(!isEdit); // create mode is ready immediately
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
-  // Load the dropdown catalog (scoped to baby vs. caregiver meds), then (in edit)
-  // match the saved name to an entry.
+  const suggestionsId = `med-suggestions-${category}`;
+
   useEffect(() => {
     api
       .listMedications(category)
-      .then((list) => {
-        setMeds(list);
-        if (isEdit) {
-          const match = list.find((m) => m.name.toLowerCase() === entry.name.toLowerCase());
-          if (match) setSelected(String(match.id));
-          else setSelected(CUSTOM); // saved name isn't in the catalog → treat as custom
-          setReady(true);
-        }
-      })
+      .then((list) => setMeds(list))
       .catch((e) => notify?.('Error: ' + e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Picking a preset pre-selects its usual unit; switching to custom resets.
-  const onSelect = (val) => {
-    setSelected(val);
-    if (val === CUSTOM || val === '') return;
-    const med = meds.find((m) => String(m.id) === val);
-    if (med?.default_unit && UNITS.includes(med.default_unit)) setUnit(med.default_unit);
+  const syncUnitFromName = (nextName) => {
+    const match = meds.find((m) => m.name.toLowerCase() === nextName.trim().toLowerCase());
+    if (match?.default_unit && UNITS.includes(match.default_unit)) setUnit(match.default_unit);
   };
 
-  const isCustom = selected === CUSTOM;
-  const resolvedName = isCustom ? customName.trim() : meds.find((m) => String(m.id) === selected)?.name ?? '';
-
   const requestClose = useRequestClose();
-  // Dirty = changed from how the form opened. Captured once the catalog has
-  // loaded so the async name→id match doesn't register as an edit.
-  const sig = [resolvedName, amount, unit, comment, time].join('|');
-  const initialSig = useRef(null);
-  useEffect(() => {
-    if (ready && initialSig.current === null) initialSig.current = sig;
-  }, [ready, sig]);
-  useDirty(ready && initialSig.current !== null && sig !== initialSig.current);
+  const sig = [name.trim(), amount, unit, comment, time].join('|');
+  const initialSig = useRef(sig);
+  useDirty(sig !== initialSig.current);
 
+  const resolvedName = name.trim();
   const valid = resolvedName !== '';
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
-      // A new custom medication is persisted to the catalog so it's reusable.
-      if (isCustom) {
-        await api.createMedication({ name: resolvedName, default_unit: unit, category });
-      }
+      await api.createMedication({ name: resolvedName, default_unit: unit, category });
       const payload = {
         name: resolvedName,
         amount: amount === '' ? null : Number(amount),
         unit,
-        time: fromLocalInput(time),
+        time: timeIso,
         comment: comment.trim() || null,
       };
       if (isEdit) await api.updateMedDose(entry.id, payload);
@@ -92,31 +71,21 @@ export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId
     <div>
       <div className="field">
         <label>Medication</label>
-        <select className="select" value={selected} onChange={(e) => onSelect(e.target.value)}>
-          <option value="" disabled>
-            Choose a medication…
-          </option>
+        <input
+          type="text"
+          list={suggestionsId}
+          value={name}
+          placeholder="e.g. Children's Benadryl"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => syncUnitFromName(name)}
+          autoFocus
+        />
+        <datalist id={suggestionsId}>
           {meds.map((m) => (
-            <option key={m.id} value={String(m.id)}>
-              {m.name}
-            </option>
+            <option key={m.id} value={m.name} />
           ))}
-          <option value={CUSTOM}>+ Add custom medication…</option>
-        </select>
+        </datalist>
       </div>
-
-      {isCustom && (
-        <div className="field">
-          <label>Custom medication name</label>
-          <input
-            type="text"
-            value={customName}
-            placeholder="e.g. Children's Benadryl"
-            onChange={(e) => setCustomName(e.target.value)}
-            autoFocus
-          />
-        </div>
-      )}
 
       <div className="field">
         <label>Time</label>
@@ -157,6 +126,7 @@ export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

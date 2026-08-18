@@ -8,6 +8,7 @@ import { Stopwatch, Pencil } from '../icons.jsx';
 import { FEED_TYPE_ICONS } from '../icons.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const TYPES = [
   { key: 'breast', label: 'Breast' },
@@ -38,6 +39,7 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
   const [milkType, setMilkType] = useState(entry?.milk_type ?? 'breast');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   // Most recent pump that recorded a volume — lets the user log "fed the bottle
   // we just pumped" without re-typing the amount.
@@ -104,12 +106,12 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
   useDirty(sig !== initialSig.current);
 
   const save = async () => {
+    const startIso = fromLocalInput(start);
+    const activeSeconds = (hasBreast ? totalSeconds : 0) + (hasBottle ? bottleSeconds : 0);
+    const endIso = activeSeconds > 0 ? new Date(new Date(startIso).getTime() + activeSeconds * 1000).toISOString() : null;
+    if (!(await requestFutureConfirm([startIso, endIso]))) return;
     setSaving(true);
     try {
-      const startIso = fromLocalInput(start);
-      const activeSeconds = (hasBreast ? totalSeconds : 0) + (hasBottle ? bottleSeconds : 0);
-      const endIso =
-        activeSeconds > 0 ? new Date(new Date(startIso).getTime() + activeSeconds * 1000).toISOString() : null;
       const payload = {
         type,
         start_time: startIso,
@@ -313,6 +315,7 @@ export default function FeedForm({ onSaved, onCancel, notify, babyId, entry }) {
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }

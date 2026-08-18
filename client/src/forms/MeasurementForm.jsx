@@ -13,6 +13,7 @@ import {
 import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
+import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 // --- small inline input with a unit suffix (mirrors the one in BabyForm) ---
 function SuffixInput({ value, onChange, suffix, placeholder, step = '0.1' }) {
@@ -76,6 +77,7 @@ export default function MeasurementForm({ onSaved, onCancel, notify, babyId, ent
 
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
 
   const requestClose = useRequestClose();
   // Dirty = changed from how the form opened (so editing without changes won't prompt).
@@ -106,10 +108,12 @@ export default function MeasurementForm({ onSaved, onCancel, notify, babyId, ent
 
   const save = async () => {
     if (!valid) return;
+    const timeIso = fromLocalInput(time);
+    if (!(await requestFutureConfirm([timeIso]))) return;
     setSaving(true);
     try {
       const payload = {
-        time: fromLocalInput(time),
+        time: timeIso,
         weight_grams: weightGrams,
         weight_unit: weightUnit,
         height_cm: heightCm,
@@ -192,6 +196,7 @@ export default function MeasurementForm({ onSaved, onCancel, notify, babyId, ent
       <button className="btn btn-ghost" onClick={requestClose}>
         Cancel
       </button>
+      {futureConfirm}
     </div>
   );
 }
