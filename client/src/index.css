@@ -1334,6 +1334,71 @@ input[type='time']::-webkit-datetime-edit {
   }
 }
 
+.error-shell {
+  min-height: 100dvh;
+}
+
+.error-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error-card {
+  width: min(100%, 720px);
+  padding: 24px;
+  border: 1px solid var(--c-border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--c-card);
+  box-shadow: var(--shadow);
+}
+
+.error-icon-wrap {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-danger) 16%, var(--c-card));
+  color: var(--c-danger);
+  margin-bottom: 14px;
+}
+
+.error-card h1 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.error-summary {
+  margin: 0 0 16px;
+  color: var(--c-muted);
+}
+
+.error-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--c-border);
+  padding-top: 14px;
+}
+
+.error-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.error-details pre {
+  margin: 12px 0 0;
+  padding: 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--c-primary-soft) 62%, var(--c-card));
+  color: var(--c-text);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 /* --------------------------- timeline --------------------------- */
 
 .timeline-item {

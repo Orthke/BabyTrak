@@ -6,25 +6,34 @@ import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
 const UNITS = ['pills', 'mg', 'drops', 'ml'];
+const CUSTOM = '__custom__';
+
 export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId, entry }) {
   const isEdit = !!entry;
   const forCaregiver = !!caregiverId;
   const category = forCaregiver ? 'caregiver' : 'baby';
   const [meds, setMeds] = useState([]); // catalog
-  const [name, setName] = useState(entry?.name ?? '');
+  const [selected, setSelected] = useState('');
+  const [customName, setCustomName] = useState(entry?.name ?? '');
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
   const [amount, setAmount] = useState(entry?.amount != null ? String(entry.amount) : '');
   const [unit, setUnit] = useState(entry?.unit ?? (forCaregiver ? 'pills' : 'ml'));
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(!isEdit);
   const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
-
-  const suggestionsId = `med-suggestions-${category}`;
 
   useEffect(() => {
     api
       .listMedications(category)
-      .then((list) => setMeds(list))
+      .then((list) => {
+        setMeds(list);
+        if (isEdit) {
+          const match = list.find((m) => m.name.toLowerCase() === entry.name.toLowerCase());
+          setSelected(match ? String(match.id) : CUSTOM);
+          setReady(true);
+        }
+      })
       .catch((e) => notify?.('Error: ' + e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -34,12 +43,27 @@ export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId
     if (match?.default_unit && UNITS.includes(match.default_unit)) setUnit(match.default_unit);
   };
 
-  const requestClose = useRequestClose();
-  const sig = [name.trim(), amount, unit, comment, time].join('|');
-  const initialSig = useRef(sig);
-  useDirty(sig !== initialSig.current);
+  const onSelect = (value) => {
+    setSelected(value);
+    if (value === CUSTOM || value === '') return;
+    const med = meds.find((m) => String(m.id) === value);
+    if (med) {
+      setCustomName(med.name);
+      syncUnitFromName(med.name);
+    }
+  };
 
-  const resolvedName = name.trim();
+  const isCustom = selected === CUSTOM;
+  const resolvedName = isCustom ? customName.trim() : meds.find((m) => String(m.id) === selected)?.name?.trim() ?? '';
+
+  const requestClose = useRequestClose();
+  const sig = [resolvedName, amount, unit, comment, time].join('|');
+  const initialSig = useRef(null);
+  useEffect(() => {
+    if (ready && initialSig.current === null) initialSig.current = sig;
+  }, [ready, sig]);
+  useDirty(ready && initialSig.current !== null && sig !== initialSig.current);
+
   const valid = resolvedName !== '';
 
   const save = async () => {
@@ -71,21 +95,32 @@ export default function MedForm({ onSaved, onCancel, notify, babyId, caregiverId
     <div>
       <div className="field">
         <label>Medication</label>
-        <input
-          type="text"
-          list={suggestionsId}
-          value={name}
-          placeholder="e.g. Children's Benadryl"
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => syncUnitFromName(name)}
-          autoFocus
-        />
-        <datalist id={suggestionsId}>
+        <select className="select" value={selected} onChange={(e) => onSelect(e.target.value)}>
+          <option value="" disabled>
+            Choose a medication…
+          </option>
           {meds.map((m) => (
-            <option key={m.id} value={m.name} />
+            <option key={m.id} value={String(m.id)}>
+              {m.name}
+            </option>
           ))}
-        </datalist>
+          <option value={CUSTOM}>+ Add new medication…</option>
+        </select>
       </div>
+
+      {isCustom && (
+        <div className="field">
+          <label>New medication</label>
+          <input
+            type="text"
+            value={customName}
+            placeholder="e.g. Children's Benadryl"
+            onChange={(e) => setCustomName(e.target.value)}
+            onBlur={() => syncUnitFromName(customName)}
+            autoFocus
+          />
+        </div>
+      )}
 
       <div className="field">
         <label>Time</label>

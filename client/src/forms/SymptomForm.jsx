@@ -5,34 +5,49 @@ import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
+const CUSTOM = '__custom__';
+
 // A symptom logged at a moment in time. Which period it belongs to is worked out
 // server-side from the timestamp, so there's nothing to pick here — logging one
 // while a period is running files it under that period automatically.
 export default function SymptomForm({ onSaved, onCancel, notify, caregiverId, entry }) {
   const isEdit = !!entry;
   const [types, setTypes] = useState([]); // catalog
-  const [name, setName] = useState(entry?.name ?? '');
+  const [selected, setSelected] = useState('');
+  const [customName, setCustomName] = useState(entry?.name ?? '');
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
   const [severity, setSeverity] = useState(entry?.severity ?? 'mild');
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(!isEdit);
   const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
-  const suggestionsId = 'symptom-suggestions';
 
   useEffect(() => {
     api
       .listSymptomTypes()
-      .then((list) => setTypes(list))
+      .then((list) => {
+        setTypes(list);
+        if (isEdit) {
+          const match = list.find((t) => t.name.toLowerCase() === entry.name.toLowerCase());
+          setSelected(match ? String(match.id) : CUSTOM);
+          setReady(true);
+        }
+      })
       .catch((e) => notify?.('Error: ' + e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const requestClose = useRequestClose();
-  const sig = [name.trim(), severity, comment, time].join('|');
-  const initialSig = useRef(sig);
-  useDirty(sig !== initialSig.current);
+  const isCustom = selected === CUSTOM;
+  const resolvedName = isCustom ? customName.trim() : types.find((t) => String(t.id) === selected)?.name?.trim() ?? '';
 
-  const resolvedName = name.trim();
+  const requestClose = useRequestClose();
+  const sig = [resolvedName, severity, comment, time].join('|');
+  const initialSig = useRef(null);
+  useEffect(() => {
+    if (ready && initialSig.current === null) initialSig.current = sig;
+  }, [ready, sig]);
+  useDirty(ready && initialSig.current !== null && sig !== initialSig.current);
+
   const valid = resolvedName !== '';
 
   const save = async () => {
@@ -62,20 +77,31 @@ export default function SymptomForm({ onSaved, onCancel, notify, caregiverId, en
     <div>
       <div className="field">
         <label>Symptom</label>
-        <input
-          type="text"
-          list={suggestionsId}
-          value={name}
-          placeholder="e.g. Joint aches"
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-        <datalist id={suggestionsId}>
+        <select className="select" value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="" disabled>
+            Choose a symptom…
+          </option>
           {types.map((t) => (
-            <option key={t.id} value={t.name} />
+            <option key={t.id} value={String(t.id)}>
+              {t.name}
+            </option>
           ))}
-        </datalist>
+          <option value={CUSTOM}>+ Add new symptom…</option>
+        </select>
       </div>
+
+      {isCustom && (
+        <div className="field">
+          <label>New symptom</label>
+          <input
+            type="text"
+            value={customName}
+            placeholder="e.g. Joint aches"
+            onChange={(e) => setCustomName(e.target.value)}
+            autoFocus
+          />
+        </div>
+      )}
 
       <div className="field">
         <label>Time</label>

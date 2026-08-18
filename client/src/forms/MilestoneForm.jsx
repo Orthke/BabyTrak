@@ -5,30 +5,45 @@ import DateTimeField from '../components/DateTimeField.jsx';
 import { useDirty, useRequestClose } from '../components/Modal.jsx';
 import { useFutureEntryConfirm } from '../components/useFutureEntryConfirm.jsx';
 
+const CUSTOM = '__custom__';
+
 export default function MilestoneForm({ onSaved, onCancel, notify, babyId, entry }) {
   const isEdit = !!entry;
   const [types, setTypes] = useState([]); // catalog
-  const [name, setName] = useState(entry?.name ?? '');
+  const [selected, setSelected] = useState('');
+  const [customName, setCustomName] = useState(entry?.name ?? '');
   const [time, setTime] = useState(entry ? toLocalInput(entry.time) : nowLocalInput());
   const [comment, setComment] = useState(entry?.comment ?? '');
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(!isEdit);
   const { requestFutureConfirm, futureConfirm } = useFutureEntryConfirm();
-  const suggestionsId = 'milestone-suggestions';
 
   useEffect(() => {
     api
       .listMilestoneTypes()
-      .then((list) => setTypes(list))
+      .then((list) => {
+        setTypes(list);
+        if (isEdit) {
+          const match = list.find((m) => m.name.toLowerCase() === entry.name.toLowerCase());
+          setSelected(match ? String(match.id) : CUSTOM);
+          setReady(true);
+        }
+      })
       .catch((e) => notify?.('Error: ' + e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const requestClose = useRequestClose();
-  const sig = [name.trim(), comment, time].join('|');
-  const initialSig = useRef(sig);
-  useDirty(sig !== initialSig.current);
+  const isCustom = selected === CUSTOM;
+  const resolvedName = isCustom ? customName.trim() : types.find((m) => String(m.id) === selected)?.name?.trim() ?? '';
 
-  const resolvedName = name.trim();
+  const requestClose = useRequestClose();
+  const sig = [resolvedName, comment, time].join('|');
+  const initialSig = useRef(null);
+  useEffect(() => {
+    if (ready && initialSig.current === null) initialSig.current = sig;
+  }, [ready, sig]);
+  useDirty(ready && initialSig.current !== null && sig !== initialSig.current);
+
   const valid = resolvedName !== '';
 
   const save = async () => {
@@ -57,20 +72,31 @@ export default function MilestoneForm({ onSaved, onCancel, notify, babyId, entry
     <div>
       <div className="field">
         <label>Milestone</label>
-        <input
-          type="text"
-          list={suggestionsId}
-          value={name}
-          placeholder="e.g. First time at the beach"
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-        <datalist id={suggestionsId}>
+        <select className="select" value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="" disabled>
+            Choose a milestone…
+          </option>
           {types.map((m) => (
-            <option key={m.id} value={m.name} />
+            <option key={m.id} value={String(m.id)}>
+              {m.name}
+            </option>
           ))}
-        </datalist>
+          <option value={CUSTOM}>+ Add new milestone…</option>
+        </select>
       </div>
+
+      {isCustom && (
+        <div className="field">
+          <label>New milestone</label>
+          <input
+            type="text"
+            value={customName}
+            placeholder="e.g. First time at the beach"
+            onChange={(e) => setCustomName(e.target.value)}
+            autoFocus
+          />
+        </div>
+      )}
 
       <div className="field">
         <label>When</label>
