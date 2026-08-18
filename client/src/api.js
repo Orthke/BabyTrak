@@ -66,6 +66,10 @@ export const api = {
   updateCaregiver: (id, data) => request(`/caregivers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteCaregiver: (id) => request(`/caregivers/${id}`, { method: 'DELETE' }),
 
+  // Developer tools
+  previewSeededValuesPurge: () => request('/dev/seeded-values-preview'),
+  purgeSeededValues: () => request('/dev/purge-seeded-values', { method: 'POST' }),
+
   // Feedings (breast | bottle | both)
   listFeedings: (babyId) => request(`/feedings${q(babyId)}`),
   createFeeding: (data, babyId) =>

@@ -10,6 +10,141 @@ const ok = (res, data) => res.json(data);
 const notFound = (res) => res.status(404).json({ error: 'Not found' });
 const badRequest = (res, msg) => res.status(400).json({ error: msg });
 
+const LEGACY_BABY_MEDS = [
+  'Vitamin D drops',
+  'Acetaminophen (Infant Tylenol)',
+  'Ibuprofen (Infant Motrin)',
+  'Gripe water',
+  'Simethicone (gas drops)',
+  'Probiotic drops',
+  'Saline nasal drops',
+  'Multivitamin with Iron (Poly-Vi-Sol)',
+  'Famotidine (reflux)',
+  'Amoxicillin',
+  'Vitamin C drops',
+  'Teething tablets',
+].map((name) => name.toLowerCase());
+
+const LEGACY_CAREGIVER_MEDS = [
+  'Tylenol (Acetaminophen)',
+  'Ibuprofen (Advil / Motrin)',
+  'Aspirin',
+  'Naproxen (Aleve)',
+  'Prenatal vitamin',
+  'Multivitamin',
+  'Vitamin D',
+  'Iron supplement',
+  'Stool softener (Colace)',
+  'Antacid (Tums)',
+  'Allergy (Benadryl)',
+  'Allergy (Claritin)',
+].map((name) => name.toLowerCase());
+
+const LEGACY_MILESTONES = [
+  'First smile',
+  'Holds head up',
+  'Responds to name',
+  'First laugh',
+  'Rolls over',
+  'Sits without support',
+  'First tooth',
+  'Babbles',
+  'First solid food',
+  'Crawls',
+  'Pulls to stand',
+  'Claps hands',
+  'Waves bye-bye',
+  'First words',
+  'Stands alone',
+  'First steps',
+  'Sleeps through the night',
+  'First haircut',
+].map((name) => name.toLowerCase());
+
+const LEGACY_SYMPTOMS = [
+  'Cramps',
+  'Bloating',
+  'Fatigue',
+  'Headache',
+  'Back pain',
+  'Mood swings',
+  'Breast tenderness',
+  'Nausea',
+  'Cravings',
+  'Acne',
+  'Irritability',
+  'Anxiety',
+  'Dizziness',
+  'Insomnia',
+  'Diarrhea',
+  'Constipation',
+  'Hot flashes',
+  'Heavy flow',
+  'Spotting',
+  'Clotting',
+].map((name) => name.toLowerCase());
+
+const placeholders = (count) => Array.from({ length: count }, () => '?').join(', ');
+
+function legacySeededPreview() {
+  const meds = db
+    .prepare(
+      `SELECT id, name, category
+       FROM medications
+       WHERE is_custom = 0
+         AND (
+           (category = 'baby' AND lower(name) IN (${placeholders(LEGACY_BABY_MEDS.length)}))
+           OR (category = 'caregiver' AND lower(name) IN (${placeholders(LEGACY_CAREGIVER_MEDS.length)}))
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM med_doses d
+           WHERE d.name = medications.name COLLATE NOCASE
+             AND ((medications.category = 'baby' AND d.baby_id IS NOT NULL)
+               OR (medications.category = 'caregiver' AND d.caregiver_id IS NOT NULL))
+         )
+       ORDER BY category, name COLLATE NOCASE`
+    )
+    .all(...LEGACY_BABY_MEDS, ...LEGACY_CAREGIVER_MEDS);
+
+  const milestones = db
+    .prepare(
+      `SELECT id, name
+       FROM milestone_types
+       WHERE is_custom = 0
+         AND lower(name) IN (${placeholders(LEGACY_MILESTONES.length)})
+         AND NOT EXISTS (
+           SELECT 1
+           FROM milestones m
+           WHERE m.name = milestone_types.name COLLATE NOCASE
+         )
+       ORDER BY name COLLATE NOCASE`
+    )
+    .all(...LEGACY_MILESTONES);
+
+  const symptoms = db
+    .prepare(
+      `SELECT id, name
+       FROM symptom_types
+       WHERE is_custom = 0
+         AND lower(name) IN (${placeholders(LEGACY_SYMPTOMS.length)})
+         AND NOT EXISTS (
+           SELECT 1
+           FROM period_symptoms s
+           WHERE s.name = symptom_types.name COLLATE NOCASE
+         )
+       ORDER BY name COLLATE NOCASE`
+    )
+    .all(...LEGACY_SYMPTOMS);
+
+  return {
+    medications: meds,
+    milestones,
+    symptoms,
+    total: meds.length + milestones.length + symptoms.length,
+  };
+}
+
 // Resolve the baby scope from query (?babyId=) or body.baby_id.
 const babyScope = (req) => {
   const raw = req.query.babyId ?? req.body?.baby_id;
@@ -124,6 +259,35 @@ router.delete('/caregivers/:id', (req, res) => {
   const info = deleteCaregiver(req.params.id);
   if (info.changes === 0) return notFound(res);
   ok(res, { deleted: true });
+});
+
+/* ------------------------ developer settings ---------------------- */
+
+router.get('/dev/seeded-values-preview', (req, res) => {
+  ok(res, legacySeededPreview());
+});
+
+router.post('/dev/purge-seeded-values', (req, res) => {
+  const before = legacySeededPreview();
+  db.transaction(() => {
+    if (before.medications.length > 0) {
+      const stmt = db.prepare(`DELETE FROM medications WHERE id IN (${placeholders(before.medications.length)})`);
+      stmt.run(...before.medications.map((item) => item.id));
+    }
+    if (before.milestones.length > 0) {
+      const stmt = db.prepare(`DELETE FROM milestone_types WHERE id IN (${placeholders(before.milestones.length)})`);
+      stmt.run(...before.milestones.map((item) => item.id));
+    }
+    if (before.symptoms.length > 0) {
+      const stmt = db.prepare(`DELETE FROM symptom_types WHERE id IN (${placeholders(before.symptoms.length)})`);
+      stmt.run(...before.symptoms.map((item) => item.id));
+    }
+  })();
+  ok(res, {
+    deleted: before,
+    totalDeleted: before.total,
+    remaining: legacySeededPreview(),
+  });
 });
 
 /* ------------------------------ feedings --------------------------- */
