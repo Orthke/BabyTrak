@@ -80,8 +80,8 @@ function shortDate(iso) {
 // The averages deliberately ignore the range tabs — a 7-day view rarely holds
 // enough periods to average — so each one says what it was actually figured
 // over: how many periods (or cycles), across which stretch of history.
-function basisNote(basis, one, many) {
-  if (!basis?.count) return 'All time · not enough logged yet';
+function basisNote(basis, { one, many, none }) {
+  if (!basis?.count) return `All time · ${none}`;
   const span = basis.from && basis.to ? ` · ${shortDate(basis.from)} – ${shortDate(basis.to)}` : '';
   return `All time · ${basis.count} ${basis.count === 1 ? one : many}${span}`;
 }
@@ -101,14 +101,18 @@ function CycleCards({ period, daily }) {
             <tr>
               <td>
                 Average period length
-                <span className="summary-note">{basisNote(period.avgLength, 'period', 'periods')}</span>
+                <span className="summary-note">
+                  {basisNote(period.avgLength, { one: 'period', many: 'periods', none: 'no completed period yet' })}
+                </span>
               </td>
               <td>{formatDays(period.avgLength?.days) ?? '—'}</td>
             </tr>
             <tr>
               <td>
                 Average cycle length
-                <span className="summary-note">{basisNote(period.avgCycle, 'cycle', 'cycles')}</span>
+                <span className="summary-note">
+                  {basisNote(period.avgCycle, { one: 'cycle', many: 'cycles', none: 'needs a second period' })}
+                </span>
               </td>
               <td>{formatDays(period.avgCycle?.days) ?? '—'}</td>
             </tr>
