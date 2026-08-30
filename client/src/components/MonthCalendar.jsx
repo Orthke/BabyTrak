@@ -21,6 +21,25 @@ const WEEKDAYS = Array.from({ length: 7 }, (_, i) =>
 const colorOf = (item) =>
   item.kind === 'feed' ? FEED_TYPE_META[item.type].color : KIND_META[item.kind].color;
 
+// Every day a period covered, not just the two that carry the start and end
+// events — a period is a run of days, and the calendar outlines the whole run.
+// A period that hasn't ended yet runs through today.
+function periodDays(items) {
+  const days = new Set();
+  for (const it of items) {
+    if (it.kind !== 'period') continue;
+    const d = new Date(it.start_time ?? it.when);
+    d.setHours(0, 0, 0, 0);
+    const end = it.end_time ? new Date(it.end_time) : new Date();
+    end.setHours(0, 0, 0, 0);
+    while (d <= end) {
+      days.add(dayKey(d));
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  return days;
+}
+
 // Month grid: one dot per kind logged on a day, tap a day for its summary.
 // `filterMenu` rides along in the header row next to the month navigator.
 export default function MonthCalendar({ items, onSelectDay, filterMenu }) {
@@ -43,6 +62,7 @@ export default function MonthCalendar({ items, onSelectDay, filterMenu }) {
   for (const it of items) {
     (byDay[dayKey(new Date(it.when))] ??= []).push(it);
   }
+  const bleeding = periodDays(items);
 
   // The grid starts on the Sunday on or before the 1st and runs six full weeks.
   const gridStart = new Date(month);
@@ -126,12 +146,14 @@ export default function MonthCalendar({ items, onSelectDay, filterMenu }) {
               <button
                 key={key}
                 type="button"
-                className={`cal-cell ${inMonth ? '' : 'out'} ${inMonth && key === todayKey ? 'today' : ''}`}
+                className={`cal-cell ${inMonth ? '' : 'out'} ${inMonth && key === todayKey ? 'today' : ''} ${
+                  inMonth && bleeding.has(key) ? 'period' : ''
+                }`}
                 disabled={!inMonth}
                 onClick={() => onSelectDay(d, dayItems)}
                 aria-label={`${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} · ${
                   dayItems.length
-                } ${dayItems.length === 1 ? 'entry' : 'entries'}`}
+                } ${dayItems.length === 1 ? 'entry' : 'entries'}${inMonth && bleeding.has(key) ? ' · period' : ''}`}
               >
                 <span className="cal-num">{d.getDate()}</span>
                 <span className="cal-dots">
