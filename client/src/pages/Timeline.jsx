@@ -285,6 +285,8 @@ export default function Timeline() {
           >
             <CaregiverDaySummary
               items={summaryDay.items}
+              allItems={shown}
+              date={summaryDay.date}
               onSelectEntry={(item) => {
                 setSummaryDay(null);
                 setEditing(item);

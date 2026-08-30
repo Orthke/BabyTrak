@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { KIND_META, FEED_TYPE_META } from '../utils.js';
+import { KIND_META, FEED_TYPE_META, periodRanges } from '../utils.js';
 import { ChevronLeft, ChevronRight } from '../icons.jsx';
 
 // A month always renders as six weeks so the grid keeps the same shape (and the
@@ -23,15 +23,10 @@ const colorOf = (item) =>
 
 // Every day a period covered, not just the two that carry the start and end
 // events — a period is a run of days, and the calendar outlines the whole run.
-// A period that hasn't ended yet runs through today.
 function periodDays(items) {
   const days = new Set();
-  for (const it of items) {
-    if (it.kind !== 'period') continue;
-    const d = new Date(it.start_time ?? it.when);
-    d.setHours(0, 0, 0, 0);
-    const end = it.end_time ? new Date(it.end_time) : new Date();
-    end.setHours(0, 0, 0, 0);
+  for (const { start, end } of periodRanges(items)) {
+    const d = new Date(start);
     while (d <= end) {
       days.add(dayKey(d));
       d.setDate(d.getDate() + 1);

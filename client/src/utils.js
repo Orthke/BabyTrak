@@ -389,6 +389,30 @@ export const periodDay = (period, atIso = new Date().toISOString()) =>
 export const periodLengthDays = (period) =>
   period.end_time ? daysBetween(period.start_time, period.end_time) + 1 : null;
 
+// The local-midnight span each period in a timeline covers. A period that
+// hasn't ended yet runs through today. The month calendar outlines every day of
+// a run off this, and the day summary asks it which period a day sits inside —
+// a period is a stretch of days, not just the two events that bound it.
+export function periodRanges(items) {
+  const ranges = [];
+  for (const it of items) {
+    if (it.kind !== 'period') continue;
+    const start = new Date(it.start_time ?? it.when);
+    start.setHours(0, 0, 0, 0);
+    const end = it.end_time ? new Date(it.end_time) : new Date();
+    end.setHours(0, 0, 0, 0);
+    if (end >= start) ranges.push({ item: it, start, end });
+  }
+  return ranges;
+}
+
+// The period covering `date` (a Date), or null if that day had none.
+export function periodCovering(items, date) {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return periodRanges(items).find((r) => day >= r.start && day <= r.end)?.item ?? null;
+}
+
 // "5 days" / "1 day", or null when there's no count.
 export const formatDays = (n) => (n == null ? null : `${n} ${n === 1 ? 'day' : 'days'}`);
 

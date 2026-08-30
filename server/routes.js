@@ -1619,8 +1619,8 @@ router.get('/caregiver-stats', (req, res) => {
     count: 0,
     bleedingDays: 0,
     symptomCount: 0,
-    avgLengthDays: null,
-    avgCycleDays: null,
+    avgLength: { days: null, count: 0, from: null, to: null },
+    avgCycle: { days: null, count: 0, from: null, to: null },
     current: null,
     last: null,
     recent: [],
@@ -1749,8 +1749,20 @@ router.get('/caregiver-stats', (req, res) => {
     count: overlapping.length,
     bleedingDays,
     symptomCount: symptoms.length,
-    avgLengthDays: avgOrNull(lengths),
-    avgCycleDays: avgOrNull(cycleGaps),
+    // Both averages carry the stretch of history they were figured over, so the
+    // dashboard can say so rather than leaving them to read as window figures.
+    avgLength: {
+      days: avgOrNull(lengths),
+      count: lengths.length,
+      from: endedPeriods[0]?.start_time ?? null,
+      to: endedPeriods[endedPeriods.length - 1]?.end_time ?? null,
+    },
+    avgCycle: {
+      days: avgOrNull(cycleGaps),
+      count: cycleGaps.length,
+      from: cycleGaps.length ? allPeriods[0].start_time : null,
+      to: cycleGaps.length ? allPeriods[allPeriods.length - 1].start_time : null,
+    },
     // Day 1 is the start day itself, so a period that started today is on day 1.
     current: running
       ? {

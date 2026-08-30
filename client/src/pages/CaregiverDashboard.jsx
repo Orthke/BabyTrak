@@ -69,6 +69,23 @@ function CycleStrip({ daily }) {
   );
 }
 
+// Short date for the averages' basis line — the year only when it isn't this one.
+function shortDate(iso) {
+  const d = new Date(iso);
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+
+// The averages deliberately ignore the range tabs — a 7-day view rarely holds
+// enough periods to average — so each one says what it was actually figured
+// over: how many periods (or cycles), across which stretch of history.
+function basisNote(basis, one, many) {
+  if (!basis?.count) return 'All time · not enough logged yet';
+  const span = basis.from && basis.to ? ` · ${shortDate(basis.from)} – ${shortDate(basis.to)}` : '';
+  return `All time · ${basis.count} ${basis.count === 1 ? one : many}${span}`;
+}
+
 // Everything period-related: where the cycle stands now, the averages, the
 // periods that touched the shown range, and what was felt during them.
 function CycleCards({ period, daily }) {
@@ -82,12 +99,18 @@ function CycleCards({ period, daily }) {
         <table className="summary-table">
           <tbody>
             <tr>
-              <td>Average period length</td>
-              <td>{formatDays(period.avgLengthDays) ?? '—'}</td>
+              <td>
+                Average period length
+                <span className="summary-note">{basisNote(period.avgLength, 'period', 'periods')}</span>
+              </td>
+              <td>{formatDays(period.avgLength?.days) ?? '—'}</td>
             </tr>
             <tr>
-              <td>Average cycle length</td>
-              <td>{formatDays(period.avgCycleDays) ?? '—'}</td>
+              <td>
+                Average cycle length
+                <span className="summary-note">{basisNote(period.avgCycle, 'cycle', 'cycles')}</span>
+              </td>
+              <td>{formatDays(period.avgCycle?.days) ?? '—'}</td>
             </tr>
           </tbody>
         </table>

@@ -2116,6 +2116,29 @@ input[type='time']::-webkit-datetime-edit {
   white-space: normal;
 }
 
+/* Sub-line under a row's label saying what the figure was computed over. */
+.summary-table .summary-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--c-muted);
+}
+
+/* A chart card has no left padding — its charts bleed to the card edge — so a
+   summary table inside one carries its own gutter, lining its rows up with the
+   card's title and status text instead of sitting left of them. */
+.chart-card .summary-table {
+  width: calc(100% - 24px);
+  margin-left: 16px;
+}
+
+.chart-card .summary-table td,
+.chart-card .summary-table th {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* Milestone names listed under the count. */
 .summary-table td.summary-list {
   text-align: left;

@@ -3,8 +3,11 @@ import {
   KIND_META,
   formatBP,
   formatBloodSugar,
+  formatDayHalf,
   formatTemp,
-  halfLabel,
+  periodCovering,
+  periodDay,
+  periodLengthDays,
   severityLabel,
   tile,
 } from '../utils.js';
@@ -18,31 +21,31 @@ function byMedication(meds) {
   return [...counts];
 }
 
-// One line saying what the day did to the cycle: a period started, ended, both,
-// or neither (in which case the row is left out).
-function periodLine(start, end) {
-  if (start && end) return `Started ${halfLabel(start.start_half)} · ended ${halfLabel(end.end_half)}`;
-  if (start) return `Started · ${halfLabel(start.start_half)}`;
-  if (end) return `Ended · ${halfLabel(end.end_half)}`;
-  return null;
+// Where this day sits in the period running through it: "Day 3 of 5" once the
+// period has ended, "Day 3" while it's still going.
+function periodDayLine(period, date) {
+  const day = periodDay(period, new Date(date).toISOString());
+  const length = periodLengthDays(period);
+  return length ? `Day ${day} of ${length}` : `Day ${day} · still going`;
 }
 
 // What a caregiver logged on one day: doses, readings, and the cycle, then the
 // entries themselves (tap one to edit it). The baby version lives in History.
-export default function CaregiverDaySummary({ items, onSelectEntry }) {
+//
+// `items` is just this day's entries; `allItems` is the whole timeline, which is
+// what tells us a quiet day sat in the middle of a period.
+export default function CaregiverDaySummary({ items, allItems, date, onSelectEntry }) {
   const unitPrefs = useSettings();
-
-  if (items.length === 0) return <p className="empty">Nothing logged on this day.</p>;
 
   const meds = items.filter((i) => i.kind === 'med');
   const temps = items.filter((i) => i.kind === 'temperature');
   const bps = items.filter((i) => i.kind === 'bp');
   const sugars = items.filter((i) => i.kind === 'sugar');
   const symptoms = items.filter((i) => i.kind === 'symptom');
-  const period = periodLine(
-    items.find((i) => i.kind === 'period'),
-    items.find((i) => i.kind === 'period_end')
-  );
+  // The period this day falls inside, whether or not it began or ended here.
+  const period = periodCovering(allItems, date);
+
+  if (items.length === 0 && !period) return <p className="empty">Nothing logged on this day.</p>;
 
   const hasReadings = temps.length > 0 || bps.length > 0 || sugars.length > 0;
   const hasCycle = !!period || symptoms.length > 0;
@@ -104,10 +107,22 @@ export default function CaregiverDaySummary({ items, onSelectEntry }) {
                 <th colSpan={2}>Cycle</th>
               </tr>
               {period && (
-                <tr>
-                  <td>Period</td>
-                  <td className="summary-values">{period}</td>
-                </tr>
+                <>
+                  <tr>
+                    <td>Period</td>
+                    <td className="summary-values">{periodDayLine(period, date)}</td>
+                  </tr>
+                  <tr>
+                    <td>Started</td>
+                    <td className="summary-values">{formatDayHalf(period.start_time, period.start_half)}</td>
+                  </tr>
+                  <tr>
+                    <td>Ended</td>
+                    <td className="summary-values">
+                      {period.end_time ? formatDayHalf(period.end_time, period.end_half) : 'Ongoing'}
+                    </td>
+                  </tr>
+                </>
               )}
               {symptoms.length > 0 && (
                 <>
@@ -132,7 +147,7 @@ export default function CaregiverDaySummary({ items, onSelectEntry }) {
         </tbody>
       </table>
 
-      <p className="section-title">Entries</p>
+      {items.length > 0 && <p className="section-title">Entries</p>}
       {items.map((item) => {
         const meta = KIND_META[item.kind];
         const Icon = KIND_ICONS[item.kind];

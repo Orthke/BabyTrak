@@ -20,8 +20,10 @@ import { describe, editHeader, whenLabel, FORM_BY_KIND } from '../entryDisplay.j
 import Modal from '../components/Modal.jsx';
 
 // Days within this many days of today show on load; older days stay behind the
-// "Load more" button, revealed OLDER_BATCH days at a time.
+// "Load more" button, revealed OLDER_BATCH days at a time. A caregiver logs far
+// less than a baby generates, so their history opens on a wider window.
 const RECENT_DAYS = 3;
+const CAREGIVER_RECENT_DAYS = 10;
 const OLDER_BATCH = 5;
 
 // Whole calendar days between `when` and today (0 = today, 1 = yesterday, …).
@@ -292,8 +294,9 @@ export default function History() {
   // Groups are already newest-first (items are). Split off days older than
   // RECENT_DAYS so they stay hidden until the user loads them.
   const dayGroups = Object.entries(groups);
-  const recent = dayGroups.filter(([, di]) => daysAgo(di[0].when) <= RECENT_DAYS);
-  const older = dayGroups.filter(([, di]) => daysAgo(di[0].when) > RECENT_DAYS);
+  const recentDays = isCaregiver ? CAREGIVER_RECENT_DAYS : RECENT_DAYS;
+  const recent = dayGroups.filter(([, di]) => daysAgo(di[0].when) <= recentDays);
+  const older = dayGroups.filter(([, di]) => daysAgo(di[0].when) > recentDays);
   const visible = [...recent, ...older.slice(0, shownOlder)];
   const remainingOlder = older.length - Math.min(shownOlder, older.length);
 
