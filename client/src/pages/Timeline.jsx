@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, serverNow } from '../api.js';
-import { KIND_META, FEED_TYPE_META, tile } from '../utils.js';
+import { KIND_META, FEED_TYPE_META, formatDate, tile } from '../utils.js';
 import { useToast } from '../components/Toast.jsx';
 import { useBaby } from '../context/BabyContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
-import { KIND_ICONS, FEED_TYPE_ICONS, Calendar3, ChevronLeft, ChevronRight } from '../icons.jsx';
+import { KIND_ICONS, FEED_TYPE_ICONS, BarChartLineFill, ChevronLeft, ChevronRight } from '../icons.jsx';
 import { useKindFilter } from '../components/EntryFilter.jsx';
 import { describe, editHeader, whenLabel, FORM_BY_KIND } from '../entryDisplay.jsx';
 import Modal from '../components/Modal.jsx';
+import MonthCalendar from '../components/MonthCalendar.jsx';
+import CaregiverDaySummary from '../components/CaregiverDaySummary.jsx';
 
 // How many days of columns to show. The height of one hour is zoomable: it
 // starts at DEFAULT_PPH and pinch/ctrl-scroll scales it within [MIN, MAX] px.
@@ -57,6 +59,7 @@ function look(item) {
 export default function Timeline() {
   const [items, setItems] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [summaryDay, setSummaryDay] = useState(null); // { date, items } shown in the caregiver day modal
   const notify = useToast();
   const { subjectType, selectedId, selectedBaby, selectedCaregiver } = useBaby();
   const unitPrefs = useSettings();
@@ -239,6 +242,62 @@ export default function Timeline() {
   const hasAny = shown.length > 0;
   const nowMs = serverNow();
 
+  const editModal =
+    editing &&
+    (() => {
+      const { label, color, Icon } = editHeader(editing);
+      const EditForm = FORM_BY_KIND[editing.kind];
+      return (
+        <Modal title={`Edit ${label}`} icon={<Icon size={20} color={color} />} onClose={() => setEditing(null)}>
+          <EditForm
+            entry={editing}
+            babyId={isCaregiver ? undefined : selectedId}
+            caregiverId={isCaregiver ? caregiverId : undefined}
+            notify={notify}
+            onCancel={() => setEditing(null)}
+            onSaved={onEdited}
+          />
+        </Modal>
+      );
+    })();
+
+  // A caregiver logs a handful of day-shaped things (a dose, a reading, a
+  // period), so an hour grid is mostly empty space. They get a month of dots
+  // instead, with the day's summary a tap away.
+  if (isCaregiver) {
+    return (
+      <div className="timeline-page">
+        <MonthCalendar
+          items={shown}
+          filterMenu={filterMenu}
+          onSelectDay={(date, dayItems) => setSummaryDay({ date, items: dayItems })}
+        />
+
+        {items.length === 0 && (
+          <p className="empty">Nothing logged for {subjectName ?? 'them'} yet. Track something on the first tab.</p>
+        )}
+
+        {summaryDay && (
+          <Modal
+            title={`Summary · ${formatDate(summaryDay.date)}`}
+            icon={<BarChartLineFill size={18} color="var(--c-primary)" />}
+            onClose={() => setSummaryDay(null)}
+          >
+            <CaregiverDaySummary
+              items={summaryDay.items}
+              onSelectEntry={(item) => {
+                setSummaryDay(null);
+                setEditing(item);
+              }}
+            />
+          </Modal>
+        )}
+
+        {editModal}
+      </div>
+    );
+  }
+
   return (
     <div className="timeline-page">
       <div className="history-head">
@@ -360,27 +419,7 @@ export default function Timeline() {
         </div>
       </div>
 
-      {editing &&
-        (() => {
-          const { label, color, Icon } = editHeader(editing);
-          const EditForm = FORM_BY_KIND[editing.kind];
-          return (
-            <Modal
-              title={`Edit ${label}`}
-              icon={<Icon size={20} color={color} />}
-              onClose={() => setEditing(null)}
-            >
-              <EditForm
-                entry={editing}
-                babyId={isCaregiver ? undefined : selectedId}
-                caregiverId={isCaregiver ? caregiverId : undefined}
-                notify={notify}
-                onCancel={() => setEditing(null)}
-                onSaved={onEdited}
-              />
-            </Modal>
-          );
-        })()}
+      {editModal}
     </div>
   );
 }

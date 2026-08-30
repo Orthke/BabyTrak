@@ -1773,11 +1773,13 @@ input[type='time']::-webkit-datetime-edit {
   font-variant-numeric: tabular-nums;
 }
 
-/* Slide the columns in from the side we're paging toward. */
-.tl-body.slide-older {
+/* Slide the columns (or the month grid) in from the side we're paging toward. */
+.tl-body.slide-older,
+.cal-grid.slide-older {
   animation: tl-slide-from-left 0.18s ease;
 }
-.tl-body.slide-newer {
+.tl-body.slide-newer,
+.cal-grid.slide-newer {
   animation: tl-slide-from-right 0.18s ease;
 }
 @keyframes tl-slide-from-left {
@@ -1955,6 +1957,115 @@ input[type='time']::-webkit-datetime-edit {
   background: var(--c-primary);
 }
 
+/* ------------------ month calendar (caregiver view) ------------------ */
+
+/* Fills the space under the header the same way .tl-scroll does, but the grid
+   sizes itself to the space rather than scrolling: a month is always six rows. */
+.cal-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-card);
+}
+
+.cal-dow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cal-dow span {
+  padding: 6px 0;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--c-muted);
+}
+
+.cal-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+}
+
+.cal-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  border: none;
+  border-right: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  background: none;
+  font: inherit;
+  color: var(--c-text);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.cal-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.cal-cell:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-primary) 6%, transparent);
+}
+
+.cal-cell:disabled {
+  cursor: default;
+}
+
+/* Leading/trailing days from the neighbouring months stay visible but recede. */
+.cal-cell.out .cal-num {
+  opacity: 0.3;
+}
+
+.cal-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-cell.today .cal-num {
+  background: var(--c-primary-fill);
+  color: white;
+}
+
+/* One dot per kind logged that day, wrapping onto a second row if needed. */
+.cal-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.cal-more {
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--c-muted);
+}
+
 /* Day summary modal table. */
 .summary-table {
   width: 100%;
@@ -1985,6 +2096,12 @@ input[type='time']::-webkit-datetime-edit {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-bottom: none;
+}
+
+/* A value column holding several readings ("98.6°F · 99.1°F") needs to wrap
+   rather than run off the edge. */
+.summary-table td.summary-values {
+  white-space: normal;
 }
 
 /* Milestone names listed under the count. */
